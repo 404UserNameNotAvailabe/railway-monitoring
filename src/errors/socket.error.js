@@ -1,4 +1,5 @@
 import { ERROR_CODES } from './error.codes.js';
+import { logError, logWarn } from '../utils/logger.js';
 
 /**
  * Standardized Socket Error Handler
@@ -35,8 +36,15 @@ export const createError = (code, message, details = {}) => {
 export const emitError = (socket, code, message, details = {}) => {
   const error = createError(code, message, details);
   
-  // Log error for debugging (in production, use structured logging)
-  console.error(`[Error] ${code}: ${message}`, details);
+  // Log error for debugging
+  logError('Error', 'Socket error emitted', {
+    code,
+    message,
+    clientId: socket.data?.clientId,
+    role: socket.data?.role,
+    socketId: socket.id,
+    ...details
+  });
   
   // Emit error to client
   socket.emit('error', error);

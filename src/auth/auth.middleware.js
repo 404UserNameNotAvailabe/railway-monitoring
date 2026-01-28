@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { logInfo, logWarn, logError } from '../utils/logger.js';
 
 // JWT secret key - In production, use environment variable
 const JWT_SECRET = process.env.JWT_SECRET || 'demo-secret-key-change-in-production';
@@ -29,6 +30,10 @@ export const authenticateSocket = (socket, next) => {
     const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.replace('Bearer ', '');
 
     if (!token) {
+      logWarn('Auth', 'Authentication failed: No token provided', { 
+        socketId: socket.id,
+        ip: socket.handshake.address 
+      });
       return next(new Error('Authentication error: No token provided'));
     }
 
@@ -37,11 +42,20 @@ export const authenticateSocket = (socket, next) => {
 
     // Validate role
     if (!decoded.role || (decoded.role !== ROLES.KIOSK && decoded.role !== ROLES.MONITOR)) {
+      logWarn('Auth', 'Authentication failed: Invalid role', { 
+        socketId: socket.id,
+        role: decoded.role,
+        ip: socket.handshake.address 
+      });
       return next(new Error('Authentication error: Invalid role'));
     }
 
     // Validate clientId
     if (!decoded.clientId) {
+      logWarn('Auth', 'Authentication failed: Missing clientId', { 
+        socketId: socket.id,
+        ip: socket.handshake.address 
+      });
       return next(new Error('Authentication error: Missing clientId'));
     }
 
@@ -50,14 +64,35 @@ export const authenticateSocket = (socket, next) => {
     socket.data.clientId = decoded.clientId;
     socket.data.userId = decoded.userId || decoded.clientId;
 
+    logInfo('Auth', 'Client authenticated successfully', {
+      clientId: decoded.clientId,
+      role: decoded.role,
+      socketId: socket.id,
+      ip: socket.handshake.address
+    });
+
     next();
   } catch (error) {
     if (error.name === 'JsonWebTokenError') {
+      logWarn('Auth', 'Authentication failed: Invalid token', { 
+        socketId: socket.id,
+        ip: socket.handshake.address,
+        error: error.message 
+      });
       return next(new Error('Authentication error: Invalid token'));
     }
     if (error.name === 'TokenExpiredError') {
+      logWarn('Auth', 'Authentication failed: Token expired', { 
+        socketId: socket.id,
+        ip: socket.handshake.address 
+      });
       return next(new Error('Authentication error: Token expired'));
     }
+    logError('Auth', 'Authentication error', { 
+      socketId: socket.id,
+      ip: socket.handshake.address,
+      error: error.message 
+    });
     return next(new Error('Authentication error: ' + error.message));
   }
 };
@@ -80,7 +115,7 @@ export const generateToken = (clientId, role, expiresIn = 86400) => {
     throw new Error('Invalid role. Must be KIOSK or MONITOR');
   }
 
-  return jwt.sign(
+  const token = jwt.sign(
     {
       clientId,
       role,
@@ -89,4 +124,12 @@ export const generateToken = (clientId, role, expiresIn = 86400) => {
     JWT_SECRET,
     { expiresIn }
   );
+
+  logInfo('Auth', 'Token generated', {
+    clientId,
+    role,
+    expiresIn
+  });
+
+  return token;
 };

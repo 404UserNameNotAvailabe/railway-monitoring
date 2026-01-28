@@ -10,6 +10,8 @@
  * - Ready for Redis adapter in future
  */
 
+import { logInfo, logWarn, logDebug } from '../utils/logger.js';
+
 // In-memory storage: Map<monitorId, monitorData>
 const monitors = new Map();
 
@@ -35,7 +37,11 @@ export const registerMonitor = (monitorId, socketId) => {
 
   monitors.set(monitorId, monitorData);
   
-  console.log(`[State] Monitor registered: ${monitorId} (socket: ${socketId})`);
+  logInfo('State', 'Monitor registered', {
+    monitorId,
+    socketId,
+    registeredAt: monitorData.registeredAt
+  });
   
   return { ...monitorData };
 };
@@ -54,7 +60,7 @@ export const removeMonitor = (monitorId) => {
   const existed = monitors.delete(monitorId);
   
   if (existed) {
-    console.log(`[State] Monitor removed: ${monitorId}`);
+    logInfo('State', 'Monitor removed', { monitorId });
   }
   
   return existed;
@@ -145,7 +151,10 @@ export const markOffline = (monitorId) => {
   monitor.status = 'offline';
   monitor.lastSeenAt = new Date();
   
-  console.log(`[State] Monitor marked offline: ${monitorId}`);
+  logInfo('State', 'Monitor marked offline', {
+    monitorId,
+    lastSeenAt: monitor.lastSeenAt
+  });
   
   return true;
 };

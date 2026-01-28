@@ -10,6 +10,8 @@
  * - Ready for Redis adapter in future
  */
 
+import { logWarn } from './logger.js';
+
 // Rate limit storage: Map<clientId, Array<timestamps>>
 const rateLimitStore = new Map();
 
@@ -85,6 +87,15 @@ export const checkRateLimit = (clientId, eventType, limit = null) => {
   if (allowed) {
     recentEntries.push(now);
     rateLimitStore.set(key, recentEntries);
+  } else {
+    // Log rate limit violation
+    logWarn('RateLimit', 'Rate limit exceeded', {
+      clientId,
+      eventType,
+      current: recentEntries.length,
+      limit: eventLimit,
+      resetAt: resetAt.toISOString()
+    });
   }
 
   return {

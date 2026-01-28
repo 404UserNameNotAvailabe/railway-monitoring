@@ -10,6 +10,8 @@
  * - Configurable thresholds
  */
 
+import { logInfo, logWarn, logDebug } from './logger.js';
+
 import { markOffline as markKioskOffline, isKioskOnline } from '../state/kiosks.state.js';
 import { endSessionByKiosk } from '../state/sessions.state.js';
 
@@ -79,7 +81,11 @@ export const checkHeartbeatTimeouts = (io) => {
         }
 
         timedOutKiosks.push(kioskId);
-        console.log(`[Heartbeat] Kiosk timed out: ${kioskId} (${Math.round(timeSinceLastHeartbeat / 1000)}s since last ping)`);
+        logWarn('Heartbeat', 'Kiosk heartbeat timeout', {
+          kioskId,
+          timeSinceLastHeartbeat: Math.round(timeSinceLastHeartbeat / 1000),
+          timeoutThreshold: Math.round(HEARTBEAT_TIMEOUT_MS / 1000)
+        });
       }
     }
   }
@@ -128,5 +134,8 @@ export const startHeartbeatChecker = (io, intervalMs = 30000) => {
     checkHeartbeatTimeouts(io);
   }, intervalMs);
 
-  console.log(`[Heartbeat] Started heartbeat checker (interval: ${intervalMs}ms, timeout: ${HEARTBEAT_TIMEOUT_MS}ms)`);
+  logInfo('Heartbeat', 'Heartbeat checker started', {
+    intervalMs,
+    timeoutMs: HEARTBEAT_TIMEOUT_MS
+  });
 };

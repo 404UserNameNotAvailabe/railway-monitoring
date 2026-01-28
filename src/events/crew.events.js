@@ -8,6 +8,8 @@
  * It only handles event broadcasting and WebRTC signaling.
  */
 
+import { logInfo } from '../utils/logger.js';
+
 /**
  * Broadcast crew sign-on event to all MONITOR clients
  * 
@@ -30,7 +32,12 @@ export const broadcastCrewSignOn = (io, payload) => {
   // Broadcast only to MONITOR clients
   io.to('monitors').emit('crew-sign-on', eventData);
   
-  console.log(`[Crew Event] Sign-on: ${payload.name} (${payload.employeeId}) from ${payload.kioskId}`);
+  logInfo('CrewEvent', 'Crew sign-on broadcasted to monitors', {
+    employeeId: payload.employeeId,
+    name: payload.name,
+    kioskId: payload.kioskId,
+    timestamp: eventData.timestamp
+  });
 };
 
 /**
@@ -55,7 +62,12 @@ export const broadcastCrewSignOff = (io, payload) => {
   // Broadcast only to MONITOR clients
   io.to('monitors').emit('crew-sign-off', eventData);
   
-  console.log(`[Crew Event] Sign-off: ${payload.name} (${payload.employeeId}) from ${payload.kioskId}`);
+  logInfo('CrewEvent', 'Crew sign-off broadcasted to monitors', {
+    employeeId: payload.employeeId,
+    name: payload.name,
+    kioskId: payload.kioskId,
+    timestamp: eventData.timestamp
+  });
 };
 
 /**

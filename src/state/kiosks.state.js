@@ -10,6 +10,8 @@
  * - Ready for Redis adapter in future
  */
 
+import { logInfo, logWarn, logDebug } from '../utils/logger.js';
+
 // In-memory storage: Map<kioskId, kioskData>
 const kiosks = new Map();
 
@@ -35,7 +37,11 @@ export const registerKiosk = (kioskId, socketId) => {
 
   kiosks.set(kioskId, kioskData);
   
-  console.log(`[State] Kiosk registered: ${kioskId} (socket: ${socketId})`);
+  logInfo('State', 'Kiosk registered', {
+    kioskId,
+    socketId,
+    registeredAt: kioskData.registeredAt
+  });
   
   return { ...kioskData };
 };
@@ -54,7 +60,7 @@ export const removeKiosk = (kioskId) => {
   const existed = kiosks.delete(kioskId);
   
   if (existed) {
-    console.log(`[State] Kiosk removed: ${kioskId}`);
+    logInfo('State', 'Kiosk removed', { kioskId });
   }
   
   return existed;
@@ -123,6 +129,11 @@ export const updateLastSeen = (kioskId) => {
   kiosk.lastSeenAt = new Date();
   kiosk.status = 'online';
   
+  logDebug('State', 'Kiosk last seen updated', {
+    kioskId,
+    lastSeenAt: kiosk.lastSeenAt
+  });
+  
   return true;
 };
 
@@ -145,7 +156,10 @@ export const markOffline = (kioskId) => {
   kiosk.status = 'offline';
   kiosk.lastSeenAt = new Date();
   
-  console.log(`[State] Kiosk marked offline: ${kioskId}`);
+  logInfo('State', 'Kiosk marked offline', {
+    kioskId,
+    lastSeenAt: kiosk.lastSeenAt
+  });
   
   return true;
 };

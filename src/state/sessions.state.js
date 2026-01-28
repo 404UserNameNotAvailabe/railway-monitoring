@@ -16,6 +16,8 @@
  * - Sessions track activity for timeout detection
  */
 
+import { logInfo, logWarn, logDebug } from '../utils/logger.js';
+
 // In-memory storage: Map<kioskId, sessionData>
 const sessions = new Map();
 
@@ -52,7 +54,12 @@ export const createSession = (kioskId, monitorId, monitorSocketId) => {
 
   sessions.set(kioskId, sessionData);
   
-  console.log(`[State] Session created: ${monitorId} monitoring ${kioskId}`);
+  logInfo('State', 'Session created', {
+    kioskId,
+    monitorId,
+    monitorSocketId,
+    startedAt: sessionData.startedAt
+  });
   
   return { ...sessionData };
 };
@@ -81,7 +88,12 @@ export const endSession = (kioskId) => {
 
   sessions.delete(kioskId);
   
-  console.log(`[State] Session ended: ${endedSession.monitorId} -> ${kioskId}`);
+  logInfo('State', 'Session ended', {
+    kioskId,
+    monitorId: endedSession.monitorId,
+    startedAt: endedSession.startedAt,
+    endedAt: endedSession.endedAt
+  });
   
   return endedSession;
 };
@@ -170,6 +182,12 @@ export const updateSessionActivity = (kioskId) => {
   }
 
   session.lastActivityAt = new Date();
+  
+  logDebug('State', 'Session activity updated', {
+    kioskId,
+    lastActivityAt: session.lastActivityAt
+  });
+  
   return true;
 };
 

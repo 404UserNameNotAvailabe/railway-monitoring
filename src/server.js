@@ -4,6 +4,7 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import { authenticateSocket } from './auth/auth.middleware.js';
 import { initializeSocket } from './socket/index.js';
+import { logInfo, logWarn, logError } from './utils/logger.js';
 
 const app = express();
 const server = createServer(app);
@@ -18,6 +19,7 @@ app.use(express.json());
 
 // Health check endpoint
 app.get('/health', (req, res) => {
+  logInfo('Server', 'Health check requested', { ip: req.ip });
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -49,9 +51,11 @@ const io = new Server(server, {
 
 // Apply authentication middleware to Socket.IO
 io.use(authenticateSocket);
+logInfo('Server', 'Authentication middleware applied to Socket.IO');
 
 // Initialize socket event handlers
 initializeSocket(io);
+logInfo('Server', 'Socket event handlers initialized');
 
 const PORT = process.env.PORT || 3000;
 
@@ -75,23 +79,36 @@ server.listen(PORT, () => {
 ║   • Clean disconnect handling                            ║
 ╚═══════════════════════════════════════════════════════════╝
   `);
-  console.log(`[Server] Listening on port ${PORT}`);
-  console.log(`[Server] Health check: http://localhost:${PORT}/health`);
+  logInfo('Server', 'Server started successfully', { 
+    port: PORT, 
+    corsOrigin: process.env.CORS_ORIGIN || '*',
+    healthCheck: `http://localhost:${PORT}/health`
+  });
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-  console.log('[Server] SIGTERM received, shutting down gracefully...');
+  logInfo('Server', 'SIGTERM received, shutting down gracefully...');
   server.close(() => {
-    console.log('[Server] Server closed');
+    logInfo('Server', 'Server closed successfully');
     process.exit(0);
   });
 });
 
 process.on('SIGINT', () => {
-  console.log('[Server] SIGINT received, shutting down gracefully...');
+  logInfo('Server', 'SIGINT received, shutting down gracefully...');
   server.close(() => {
-    console.log('[Server] Server closed');
+    logInfo('Server', 'Server closed successfully');
     process.exit(0);
   });
+});
+
+// Log unhandled errors
+process.on('unhandledRejection', (reason, promise) => {
+  logError('Server', 'Unhandled promise rejection', { reason, promise });
+});
+
+process.on('uncaughtException', (error) => {
+  logError('Server', 'Uncaught exception', { error: error.message, stack: error.stack });
+  process.exit(1);
 });
