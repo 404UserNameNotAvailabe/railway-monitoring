@@ -1,0 +1,30 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || '22' }}
+          script: |
+            # Navigate to the app directory (adjust path as needed)
+            cd ~/railway-monitoring
+
+            # Pull latest changes
+            git pull origin main
+
+            # Install dependencies
+            npm install --production
+
+            # Restart application using PM2
+            # If PM2 is not installed, this line might fail initially, but the setup guide will cover it.
+            pm2 restart ecosystem.config.js || pm2 restart src/server.js --name "railway-monitoring" || node src/server.js &

@@ -377,4 +377,43 @@ socket.on('kiosk-registered', (data) => {
 - Video data flows directly between clients via WebRTC peer connections
 - All crew events are broadcast to MONITOR clients only
 - WebRTC signaling messages are forwarded between clients without modification
-# railway-monitoring
+
+## 🚀 Deployment (CI/CD)
+
+This project includes a built-in CI/CD pipeline for VPS hosting (like **Hostinger**, DigitalOcean, or AWS EC2). It uses GitHub Actions to automatically deploy your code whenever you push to the `main` branch.
+
+### 1. Server Setup (One-time)
+SSH into your VPS and prepare the environment:
+```bash
+# Install Node.js (v18+) and PM2
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt-get install -y nodejs
+sudo npm install -g pm2
+
+# Clone the repository
+git clone https://github.com/your-username/railway-monitoring.git
+cd railway-monitoring
+npm install
+
+# Start the app for the first time
+pm2 start ecosystem.config.js
+pm2 save
+pm2 startup
+```
+
+### 2. Configure GitHub Secrets
+Go to your GitHub Repository Settings > **Secrets and variables** > **Actions** > New repository secret. Add the following:
+
+| Secret Name | Value |
+| :--- | :--- |
+| `VPS_HOST` | The IP address of your server (e.g., `123.45.67.89`) |
+| `VPS_USERNAME` | SSH username (usually `root` or `ubuntu`) |
+| `VPS_SSH_KEY` | Your private SSH key content (copy from `~/.ssh/id_rsa`) |
+| `VPS_PORT` | SSH port (default is `22`) |
+
+### 3. Deploy
+Simply push your changes to GitHub:
+```bash
+git push origin main
+```
+The "Deploy to VPS" action will run automatically, pull the code on your server, and restart the application with zero downtime.
