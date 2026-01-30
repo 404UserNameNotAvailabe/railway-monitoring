@@ -247,6 +247,15 @@ export const initializeSocket = (io) => {
           sessionId: kioskId, // Using kioskId as session identifier
           timestamp: new Date().toISOString()
         });
+        const kiosk = kiosksState.getKiosk(kioskId);
+        if (kiosk?.socketId) {
+          io.to(kiosk.socketId).emit('monitoring-started', {
+            kioskId,
+            monitorId: clientId,
+            sessionId: kioskId,
+            timestamp: new Date().toISOString()
+          });
+        }
         logInfo('Session', 'Monitoring session activity updated', {
           monitorId: clientId,
           kioskId
@@ -264,6 +273,16 @@ export const initializeSocket = (io) => {
           startedAt: session.startedAt.toISOString(),
           timestamp: new Date().toISOString()
         });
+        const kiosk = kiosksState.getKiosk(kioskId);
+        if (kiosk?.socketId) {
+          io.to(kiosk.socketId).emit('monitoring-started', {
+            kioskId,
+            monitorId: clientId,
+            sessionId: kioskId,
+            startedAt: session.startedAt.toISOString(),
+            timestamp: new Date().toISOString()
+          });
+        }
 
         logInfo('Session', 'Monitoring session started', {
           monitorId: clientId,
@@ -336,6 +355,14 @@ export const initializeSocket = (io) => {
           kioskId,
           timestamp: new Date().toISOString()
         });
+        const kiosk = kiosksState.getKiosk(kioskId);
+        if (kiosk?.socketId) {
+          io.to(kiosk.socketId).emit('monitoring-stopped', {
+            kioskId,
+            monitorId: clientId,
+            timestamp: new Date().toISOString()
+          });
+        }
 
         logInfo('Session', 'Monitoring session stopped', {
           monitorId: clientId,

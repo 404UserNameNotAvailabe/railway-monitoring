@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Railway Monitoring - Socket.IO Test Client</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      color: #e0e0e0;
+      padding: 20px;
+    }
+    h1 { text-align: center; margin-bottom: 20px; color: #4fc3f7; }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+    
+    .card {
+      background: rgba(255,255,255,0.05);
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .card h2 { 
+      margin-bottom: 15px; 
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .card.kiosk h2 { color: #81c784; }
+    .card.monitor h2 { color: #ffb74d; }
+    
+    .form-group { margin-bottom: 15px; }
+    label { display: block; margin-bottom: 5px; font-size: 14px; color: #aaa; }
+    input, select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 6px;
+      background: rgba(0,0,0,0.3);
+      color: #fff;
+      font-size: 14px;
+    }
+    input:focus, select:focus { outline: none; border-color: #4fc3f7; }
+    
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      margin-right: 8px;
+      margin-bottom: 8px;
+      transition: all 0.2s;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn-primary { background: #4fc3f7; color: #000; }
+    .btn-success { background: #81c784; color: #000; }
+    .btn-warning { background: #ffb74d; color: #000; }
+    .btn-danger { background: #e57373; color: #000; }
+    .btn-secondary { background: rgba(255,255,255,0.2); color: #fff; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+    
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+      margin-bottom: 15px;
+    }
+    .status.disconnected { background: rgba(229,115,115,0.2); color: #e57373; }
+    .status.connected { background: rgba(129,199,132,0.2); color: #81c784; }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    
+    .log-container {
+      background: rgba(0,0,0,0.4);
+      border-radius: 8px;
+      padding: 12px;
+      height: 250px;
+      overflow-y: auto;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 12px;
+      margin-top: 15px;
+    }
+    .log-entry { 
+      padding: 4px 0; 
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      word-break: break-all;
+    }
+    .log-entry.info { color: #4fc3f7; }
+    .log-entry.success { color: #81c784; }
+    .log-entry.error { color: #e57373; }
+    .log-entry.event { color: #ffb74d; }
+    .log-entry .time { color: #666; margin-right: 8px; }
+    
+    .server-config {
+      background: rgba(79,195,247,0.1);
+      border-radius: 8px;
+      padding: 15px;
+      margin-bottom: 20px;
+    }
+    .server-config input { margin-top: 8px; }
+    
+    .actions { margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); }
+    .crew-form { display: flex; gap: 10px; margin-top: 10px; }
+    .crew-form input { flex: 1; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🚂 Railway Monitoring Test Client</h1>
+    
+    <div class="server-config card">
+      <label>Server URL</label>
+      <input type="text" id="serverUrl" value="https://webrtc-test.divyavyoma.cloud" placeholder="https://your-server.com">
+    </div>
+    
+    <div class="grid">
+      <!-- KIOSK Panel -->
+      <div class="card kiosk">
+        <h2>📟 KIOSK Client</h2>
+        <div id="kioskStatus" class="status disconnected">
+          <span class="status-dot"></span>
+          <span>Disconnected</span>
+        </div>
+        
+        <div class="form-group">
+          <label for="kioskUsername">Username</label>
+          <input type="text" id="kioskUsername" value="user@gmail.com">
+        </div>
+        <div class="form-group">
+          <label for="kioskPassword">Password</label>
+          <input type="password" id="kioskPassword" value="user123">
+        </div>
+        
+        <button class="btn btn-primary" onclick="loginKiosk()">🔐 Login</button>
+        <button class="btn btn-success" id="btnConnectKiosk" onclick="connectKiosk()" disabled>⚡ Connect</button>
+        <button class="btn btn-danger" id="btnDisconnectKiosk" onclick="disconnectKiosk()" disabled>❌ Disconnect</button>
+        
+        <div class="actions">
+          <button class="btn btn-secondary" id="btnRegisterKiosk" onclick="registerKiosk()" disabled>📝 Register Kiosk</button>
+          
+          <div class="crew-form">
+            <input type="text" id="crewId" placeholder="Crew ID (e.g., CREW_001)">
+            <input type="text" id="crewName" placeholder="Crew Name">
+          </div>
+          <button class="btn btn-success" id="btnCrewSignOn" onclick="crewSignOn()" disabled>👤 Crew Sign-On</button>
+          <button class="btn btn-warning" id="btnCrewSignOff" onclick="crewSignOff()" disabled>👋 Crew Sign-Off</button>
+        </div>
+        
+        <div class="log-container" id="kioskLog"></div>
+      </div>
+      
+      <!-- MONITOR Panel -->
+      <div class="card monitor">
+        <h2>🖥️ MONITOR Client</h2>
+        <div id="monitorStatus" class="status disconnected">
+          <span class="status-dot"></span>
+          <span>Disconnected</span>
+        </div>
+        
+        <div class="form-group">
+          <label for="monitorUsername">Username</label>
+          <input type="text" id="monitorUsername" value="monitor@gmail.com">
+        </div>
+        <div class="form-group">
+          <label for="monitorPassword">Password</label>
+          <input type="password" id="monitorPassword" value="monitor123">
+        </div>
+        
+        <button class="btn btn-primary" onclick="loginMonitor()">🔐 Login</button>
+        <button class="btn btn-success" id="btnConnectMonitor" onclick="connectMonitor()" disabled>⚡ Connect</button>
+        <button class="btn btn-danger" id="btnDisconnectMonitor" onclick="disconnectMonitor()" disabled>❌ Disconnect</button>
+        
+        <div class="actions">
+          <button class="btn btn-secondary" id="btnRegisterMonitor" onclick="registerMonitor()" disabled>📝 Register Monitor</button>
+          
+          <div class="crew-form">
+            <input type="text" id="targetKioskId" placeholder="Kiosk ID to monitor (e.g., KIOSK_01)">
+          </div>
+          <button class="btn btn-success" id="btnStartMonitoring" onclick="startMonitoring()" disabled>▶️ Start Monitoring</button>
+          <button class="btn btn-warning" id="btnStopMonitoring" onclick="stopMonitoring()" disabled>⏹️ Stop Monitoring</button>
+        </div>
+        
+        <div class="log-container" id="monitorLog"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let kioskSocket = null;
+    let monitorSocket = null;
+    let kioskToken = null;
+    let monitorToken = null;
+    let kioskClientId = null;
+
+    function getServerUrl() {
+      return document.getElementById('serverUrl').value.trim();
+    }
+
+    function log(panel, message, type = 'info') {
+      const logEl = document.getElementById(panel + 'Log');
+      const time = new Date().toLocaleTimeString();
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      entry.innerHTML = `<span class="time">${time}</span>${message}`;
+      logEl.appendChild(entry);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function updateStatus(panel, connected) {
+      const statusEl = document.getElementById(panel + 'Status');
+      statusEl.className = `status ${connected ? 'connected' : 'disconnected'}`;
+      statusEl.querySelector('span:last-child').textContent = connected ? 'Connected' : 'Disconnected';
+    }
+
+    // ==================== KIOSK Functions ====================
+    async function loginKiosk() {
+      const username = document.getElementById('kioskUsername').value;
+      const password = document.getElementById('kioskPassword').value;
+      
+      log('kiosk', `Logging in as ${username}...`, 'info');
+      
+      try {
+        const res = await fetch(`${getServerUrl()}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, userType: 'user' })
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+          kioskToken = data.token;
+          kioskClientId = data.user.clientId;
+          log('kiosk', `✅ Login successful! ClientId: ${data.user.clientId}`, 'success');
+          document.getElementById('btnConnectKiosk').disabled = false;
+        } else {
+          log('kiosk', `❌ Login failed: ${data.error}`, 'error');
+        }
+      } catch (err) {
+        log('kiosk', `❌ Error: ${err.message}`, 'error');
+      }
+    }
+
+    function connectKiosk() {
+      if (!kioskToken) return log('kiosk', '❌ Please login first', 'error');
+      
+      log('kiosk', 'Connecting to server...', 'info');
+      
+      kioskSocket = io(getServerUrl(), { auth: { token: kioskToken } });
+      
+      kioskSocket.on('connect', () => {
+        log('kiosk', `✅ Connected! Socket ID: ${kioskSocket.id}`, 'success');
+        updateStatus('kiosk', true);
+        document.getElementById('btnDisconnectKiosk').disabled = false;
+        document.getElementById('btnRegisterKiosk').disabled = false;
+        document.getElementById('btnCrewSignOn').disabled = false;
+        document.getElementById('btnCrewSignOff').disabled = false;
+      });
+
+      kioskSocket.on('disconnect', (reason) => {
+        log('kiosk', `🔌 Disconnected: ${reason}`, 'error');
+        updateStatus('kiosk', false);
+      });
+
+      kioskSocket.on('connect_error', (err) => {
+        log('kiosk', `❌ Connection error: ${err.message}`, 'error');
+      });
+
+      kioskSocket.on('kiosk-registered', (data) => {
+        log('kiosk', `📟 Kiosk registered: ${JSON.stringify(data)}`, 'success');
+      });
+
+      kioskSocket.on('monitoring-started', (data) => {
+        log('kiosk', `👁️ Monitoring started: ${JSON.stringify(data)}`, 'event');
+      });
+
+      kioskSocket.on('monitoring-stopped', (data) => {
+        log('kiosk', `👁️ Monitoring stopped: ${JSON.stringify(data)}`, 'event');
+      });
+
+      kioskSocket.on('crew-sign-on-ack', (data) => {
+        log('kiosk', `✅ Crew sign-on acknowledged: ${JSON.stringify(data)}`, 'success');
+      });
+
+      kioskSocket.on('crew-sign-off-ack', (data) => {
+        log('kiosk', `✅ Crew sign-off acknowledged: ${JSON.stringify(data)}`, 'success');
+      });
+
+      kioskSocket.on('offer', (data) => {
+        log('kiosk', `📨 Received offer from: ${data.from}`, 'event');
+      });
+
+      kioskSocket.on('error', (data) => {
+        log('kiosk', `❌ Error: ${JSON.stringify(data)}`, 'error');
+      });
+
+      kioskSocket.on('heartbeat-pong', () => {
+        log('kiosk', '💓 Heartbeat pong received', 'info');
+      });
+    }
+
+    function disconnectKiosk() {
+      if (kioskSocket) {
+        kioskSocket.disconnect();
+        kioskSocket = null;
+        updateStatus('kiosk', false);
+        log('kiosk', '🔌 Disconnected', 'info');
+      }
+    }
+
+    function registerKiosk() {
+      if (!kioskSocket) return;
+      log('kiosk', 'Registering kiosk...', 'info');
+      kioskSocket.emit('register-kiosk');
+    }
+
+    function crewSignOn() {
+      if (!kioskSocket) return;
+      const employeeId = document.getElementById('crewId').value || 'CREW_001';
+      const name = document.getElementById('crewName').value || 'John Doe';
+      const kioskId = kioskClientId || 'KIOSK_01';
+      log('kiosk', `👤 Crew sign-on: ${employeeId} - ${name}`, 'info');
+      kioskSocket.emit('crew-sign-on', { employeeId, name, kioskId });
+    }
+
+    function crewSignOff() {
+      if (!kioskSocket) return;
+      const employeeId = document.getElementById('crewId').value || 'CREW_001';
+      const name = document.getElementById('crewName').value || 'John Doe';
+      const kioskId = kioskClientId || 'KIOSK_01';
+      log('kiosk', `👋 Crew sign-off: ${employeeId}`, 'info');
+      kioskSocket.emit('crew-sign-off', { employeeId, name, kioskId });
+    }
+
+    // ==================== MONITOR Functions ====================
+    async function loginMonitor() {
+      const username = document.getElementById('monitorUsername').value;
+      const password = document.getElementById('monitorPassword').value;
+      
+      log('monitor', `Logging in as ${username}...`, 'info');
+      
+      try {
+        const res = await fetch(`${getServerUrl()}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, userType: 'monitor' })
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+          monitorToken = data.token;
+          log('monitor', `✅ Login successful! ClientId: ${data.user.clientId}`, 'success');
+          document.getElementById('btnConnectMonitor').disabled = false;
+        } else {
+          log('monitor', `❌ Login failed: ${data.error}`, 'error');
+        }
+      } catch (err) {
+        log('monitor', `❌ Error: ${err.message}`, 'error');
+      }
+    }
+
+    function connectMonitor() {
+      if (!monitorToken) return log('monitor', '❌ Please login first', 'error');
+      
+      log('monitor', 'Connecting to server...', 'info');
+      
+      monitorSocket = io(getServerUrl(), { auth: { token: monitorToken } });
+      
+      monitorSocket.on('connect', () => {
+        log('monitor', `✅ Connected! Socket ID: ${monitorSocket.id}`, 'success');
+        updateStatus('monitor', true);
+        document.getElementById('btnDisconnectMonitor').disabled = false;
+        document.getElementById('btnRegisterMonitor').disabled = false;
+        document.getElementById('btnStartMonitoring').disabled = false;
+        document.getElementById('btnStopMonitoring').disabled = false;
+      });
+
+      monitorSocket.on('disconnect', (reason) => {
+        log('monitor', `🔌 Disconnected: ${reason}`, 'error');
+        updateStatus('monitor', false);
+      });
+
+      monitorSocket.on('connect_error', (err) => {
+        log('monitor', `❌ Connection error: ${err.message}`, 'error');
+      });
+
+      monitorSocket.on('monitor-registered', (data) => {
+        log('monitor', `🖥️ Monitor registered: ${JSON.stringify(data)}`, 'success');
+      });
+
+      monitorSocket.on('kiosk-online', (data) => {
+        log('monitor', `🟢 Kiosk online: ${JSON.stringify(data)}`, 'event');
+        document.getElementById('targetKioskId').value = data.kioskId;
+      });
+
+      monitorSocket.on('kiosk-offline', (data) => {
+        log('monitor', `🔴 Kiosk offline: ${JSON.stringify(data)}`, 'event');
+      });
+
+      monitorSocket.on('monitoring-started', (data) => {
+        log('monitor', `▶️ Monitoring started: ${JSON.stringify(data)}`, 'success');
+      });
+
+      monitorSocket.on('monitoring-stopped', (data) => {
+        log('monitor', `⏹️ Monitoring stopped: ${JSON.stringify(data)}`, 'event');
+      });
+
+      monitorSocket.on('session-started', (data) => {
+        log('monitor', `▶️ Session started: ${JSON.stringify(data)}`, 'success');
+      });
+
+      monitorSocket.on('session-ended', (data) => {
+        log('monitor', `⏹️ Session ended: ${JSON.stringify(data)}`, 'event');
+      });
+
+      monitorSocket.on('crew-signed-on', (data) => {
+        log('monitor', `👤 Crew signed on: ${JSON.stringify(data)}`, 'event');
+      });
+
+      monitorSocket.on('crew-signed-off', (data) => {
+        log('monitor', `👋 Crew signed off: ${JSON.stringify(data)}`, 'event');
+      });
+
+      monitorSocket.on('answer', (data) => {
+        log('monitor', `📨 Received answer from: ${data.from}`, 'event');
+      });
+
+      monitorSocket.on('ice-candidate', (data) => {
+        log('monitor', `🧊 Received ICE candidate from: ${data.from}`, 'event');
+      });
+
+      monitorSocket.on('error', (data) => {
+        log('monitor', `❌ Error: ${JSON.stringify(data)}`, 'error');
+      });
+
+      monitorSocket.on('heartbeat-pong', () => {
+        log('monitor', '💓 Heartbeat pong received', 'info');
+      });
+    }
+
+    function disconnectMonitor() {
+      if (monitorSocket) {
+        monitorSocket.disconnect();
+        monitorSocket = null;
+        updateStatus('monitor', false);
+        log('monitor', '🔌 Disconnected', 'info');
+      }
+    }
+
+    function registerMonitor() {
+      if (!monitorSocket) return;
+      log('monitor', 'Registering monitor...', 'info');
+      monitorSocket.emit('register-monitor');
+    }
+
+    function startMonitoring() {
+      if (!monitorSocket) return;
+      const kioskId = document.getElementById('targetKioskId').value || 'KIOSK_01';
+      log('monitor', `▶️ Starting monitoring: ${kioskId}`, 'info');
+      monitorSocket.emit('start-monitoring', { kioskId });
+    }
+
+    function stopMonitoring() {
+      if (!monitorSocket) return;
+      const kioskId = document.getElementById('targetKioskId').value || 'KIOSK_01';
+      log('monitor', `⏹️ Stopping monitoring: ${kioskId}`, 'info');
+      monitorSocket.emit('stop-monitoring', { kioskId });
+    }
+
+    // Initial log messages
+    log('kiosk', '👋 Ready. Login to get started.', 'info');
+    log('monitor', '👋 Ready. Login to get started.', 'info');
+  </script>
+</body>
+</html>
