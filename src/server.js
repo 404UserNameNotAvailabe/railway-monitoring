@@ -6,6 +6,7 @@ import { authenticateSocket } from './auth/auth.middleware.js';
 import { initializeSocket } from './socket/index.js';
 import { logInfo, logWarn, logError } from './utils/logger.js';
 import authRoutes from './auth/auth.routes.js';
+import cctvRoutes from './cctv/cctv.routes.js';
 
 const app = express();
 const server = createServer(app);
@@ -32,6 +33,18 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 logInfo('Server', 'Authentication routes registered', { 
   endpoints: ['/api/auth/login', '/api/auth/device-token', '/api/auth/register', '/api/auth/users'] 
+});
+
+// CCTV API routes
+app.use('/api/cctv', cctvRoutes);
+logInfo('Server', 'CCTV routes registered', { 
+  endpoints: [
+    'GET /api/cctv/cameras',
+    'GET /api/cctv/cameras/:cameraId',
+    'POST /api/cctv/stream-token',
+    'POST /api/cctv/health-callback',
+    'POST /api/cctv/cameras (admin)'
+  ] 
 });
 
 /**
