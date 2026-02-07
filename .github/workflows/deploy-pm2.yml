@@ -21,8 +21,9 @@ jobs:
       - name: Update source repository
         working-directory: /home/github-runner/railway-monitoring
         run: |
-          git pull origin main
-          npm install
+            git fetch origin main
+            git reset --hard origin/main
+            npm install
 
       - name: Sync to production directory
         run: |
