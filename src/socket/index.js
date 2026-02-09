@@ -15,15 +15,37 @@
  * clients and broadcasts crew events to MONITOR clients.
  */
 
-import { ROLES } from '../auth/auth.middleware.js';
-import { broadcastCrewSignOn, broadcastCrewSignOff, validateCrewEventPayload } from '../events/crew.events.js';
-import { emitError, validateOrError, ERROR_CODES } from '../errors/socket.error.js';
+import {
+  ROLES
+} from '../auth/auth.middleware.js';
+import {
+  broadcastCrewSignOn,
+  broadcastCrewSignOff,
+  validateCrewEventPayload
+} from '../events/crew.events.js';
+import {
+  emitError,
+  validateOrError,
+  ERROR_CODES
+} from '../errors/socket.error.js';
 import * as kiosksState from '../state/kiosks.state.js';
 import * as monitorsState from '../state/monitors.state.js';
 import * as sessionsState from '../state/sessions.state.js';
-import { checkRateLimit, resetAllRateLimits } from '../utils/rate.limiter.js';
-import { processHeartbeatPing, removeHeartbeat, startHeartbeatChecker } from '../utils/heartbeat.js';
-import { logInfo, logWarn, logError, logDebug } from '../utils/logger.js';
+import {
+  checkRateLimit,
+  resetAllRateLimits
+} from '../utils/rate.limiter.js';
+import {
+  processHeartbeatPing,
+  removeHeartbeat,
+  startHeartbeatChecker
+} from '../utils/heartbeat.js';
+import {
+  logInfo,
+  logWarn,
+  logError,
+  logDebug
+} from '../utils/logger.js';
 
 /**
  * Initialize Socket.IO connection handling
@@ -38,11 +60,11 @@ export const initializeSocket = (io) => {
   // Check every 30 seconds for timed-out sessions
   setInterval(() => {
     const timedOutSessions = sessionsState.getTimedOutSessions();
-    
+
     if (timedOutSessions.length > 0) {
       logInfo('Session', `Checking for timed-out sessions: ${timedOutSessions.length} found`);
     }
-    
+
     for (const session of timedOutSessions) {
       logWarn('Session', 'Session timeout detected', {
         kioskId: session.kioskId,
@@ -51,10 +73,10 @@ export const initializeSocket = (io) => {
         startedAt: session.startedAt,
         lastActivityAt: session.lastActivityAt
       });
-      
+
       // End the session
       sessionsState.endSession(session.kioskId);
-      
+
       // Notify monitors
       io.to('monitors').emit('session-ended', {
         kioskId: session.kioskId,
@@ -78,10 +100,15 @@ export const initializeSocket = (io) => {
     }
   }, 30000); // Check every 30 seconds
 
-  logInfo('Session', 'Session timeout checker started', { interval: '30s' });
+  logInfo('Session', 'Session timeout checker started', {
+    interval: '30s'
+  });
 
   io.on('connection', (socket) => {
-    const { role, clientId } = socket.data;
+    const {
+      role,
+      clientId
+    } = socket.data;
 
     logInfo('Socket', 'Client connected', {
       clientId,
@@ -93,10 +120,16 @@ export const initializeSocket = (io) => {
     // Join role-specific room for targeted broadcasts
     if (role === ROLES.MONITOR) {
       socket.join('monitors');
-      logInfo('Socket', 'Monitor joined monitors room', { clientId, socketId: socket.id });
+      logInfo('Socket', 'Monitor joined monitors room', {
+        clientId,
+        socketId: socket.id
+      });
     } else if (role === ROLES.KIOSK) {
       socket.join('kiosks');
-      logInfo('Socket', 'Kiosk joined kiosks room', { clientId, socketId: socket.id });
+      logInfo('Socket', 'Kiosk joined kiosks room', {
+        clientId,
+        socketId: socket.id
+      });
     }
 
     /**
@@ -104,12 +137,18 @@ export const initializeSocket = (io) => {
      * Emits kiosk-online event to all MONITOR clients
      */
     socket.on('register-kiosk', () => {
-      logInfo('Socket', 'Register kiosk request received', { clientId, socketId: socket.id });
-      
+      logInfo('Socket', 'Register kiosk request received', {
+        clientId,
+        socketId: socket.id
+      });
+
       // Guard: Only KIOSK role can register as kiosk
-      if (!validateOrError(socket, role === ROLES.KIOSK, ERROR_CODES.AUTH_INVALID_ROLE, 
+      if (!validateOrError(socket, role === ROLES.KIOSK, ERROR_CODES.AUTH_INVALID_ROLE,
           'Unauthorized: Only KIOSK clients can register as kiosk')) {
-        logWarn('Socket', 'Register kiosk failed: Invalid role', { clientId, role });
+        logWarn('Socket', 'Register kiosk failed: Invalid role', {
+          clientId,
+          role
+        });
         return;
       }
 
@@ -139,7 +178,9 @@ export const initializeSocket = (io) => {
           socketId: socket.id,
           error: error.message
         });
-        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to register kiosk', { error: error.message });
+        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to register kiosk', {
+          error: error.message
+        });
       }
     });
 
@@ -147,12 +188,18 @@ export const initializeSocket = (io) => {
      * Register MONITOR client
      */
     socket.on('register-monitor', () => {
-      logInfo('Socket', 'Register monitor request received', { clientId, socketId: socket.id });
-      
+      logInfo('Socket', 'Register monitor request received', {
+        clientId,
+        socketId: socket.id
+      });
+
       // Guard: Only MONITOR role can register as monitor
       if (!validateOrError(socket, role === ROLES.MONITOR, ERROR_CODES.AUTH_INVALID_ROLE,
           'Unauthorized: Only MONITOR clients can register as monitor')) {
-        logWarn('Socket', 'Register monitor failed: Invalid role', { clientId, role });
+        logWarn('Socket', 'Register monitor failed: Invalid role', {
+          clientId,
+          role
+        });
         return;
       }
 
@@ -186,7 +233,9 @@ export const initializeSocket = (io) => {
           socketId: socket.id,
           error: error.message
         });
-        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to register monitor', { error: error.message });
+        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to register monitor', {
+          error: error.message
+        });
       }
     });
 
@@ -196,8 +245,10 @@ export const initializeSocket = (io) => {
      * Only one MONITOR per KIOSK at a time
      */
     socket.on('start-monitoring', (data) => {
-      const { kioskId } = data || {};
-      
+      const {
+        kioskId
+      } = data || {};
+
       logInfo('Session', 'Start monitoring request received', {
         monitorId: clientId,
         kioskId,
@@ -207,21 +258,30 @@ export const initializeSocket = (io) => {
       // Guard: Only MONITOR role can start monitoring
       if (!validateOrError(socket, role === ROLES.MONITOR, ERROR_CODES.OPERATION_NOT_ALLOWED,
           'Unauthorized: Only MONITOR clients can start monitoring')) {
-        logWarn('Session', 'Start monitoring failed: Invalid role', { clientId, role, kioskId });
+        logWarn('Session', 'Start monitoring failed: Invalid role', {
+          clientId,
+          role,
+          kioskId
+        });
         return;
       }
 
       // Guard: kioskId is required
       if (!validateOrError(socket, kioskId, ERROR_CODES.INVALID_REQUEST,
           'Invalid request: kioskId is required')) {
-        logWarn('Session', 'Start monitoring failed: Missing kioskId', { clientId });
+        logWarn('Session', 'Start monitoring failed: Missing kioskId', {
+          clientId
+        });
         return;
       }
 
       // Guard: Kiosk must be registered and online
       if (!validateOrError(socket, kiosksState.isKioskOnline(kioskId), ERROR_CODES.SESSION_KIOSK_OFFLINE,
           `Kiosk ${kioskId} is not online`)) {
-        logWarn('Session', 'Start monitoring failed: Kiosk offline', { clientId, kioskId });
+        logWarn('Session', 'Start monitoring failed: Kiosk offline', {
+          clientId,
+          kioskId
+        });
         return;
       }
 
@@ -236,8 +296,9 @@ export const initializeSocket = (io) => {
             existingMonitorId: existingSession.monitorId
           });
           emitError(socket, ERROR_CODES.SESSION_ALREADY_EXISTS,
-              `Kiosk ${kioskId} is already being monitored by another monitor`,
-              { existingMonitorId: existingSession.monitorId });
+            `Kiosk ${kioskId} is already being monitored by another monitor`, {
+              existingMonitorId: existingSession.monitorId
+            });
           return;
         }
         // If monitor already owns session, just update activity
@@ -287,8 +348,10 @@ export const initializeSocket = (io) => {
      * Only the monitor that owns the session can stop it
      */
     socket.on('stop-monitoring', (data) => {
-      const { kioskId } = data || {};
-      
+      const {
+        kioskId
+      } = data || {};
+
       logInfo('Session', 'Stop monitoring request received', {
         monitorId: clientId,
         kioskId,
@@ -298,21 +361,30 @@ export const initializeSocket = (io) => {
       // Guard: Only MONITOR role can stop monitoring
       if (!validateOrError(socket, role === ROLES.MONITOR, ERROR_CODES.OPERATION_NOT_ALLOWED,
           'Unauthorized: Only MONITOR clients can stop monitoring')) {
-        logWarn('Session', 'Stop monitoring failed: Invalid role', { clientId, role, kioskId });
+        logWarn('Session', 'Stop monitoring failed: Invalid role', {
+          clientId,
+          role,
+          kioskId
+        });
         return;
       }
 
       // Guard: kioskId is required
       if (!validateOrError(socket, kioskId, ERROR_CODES.INVALID_REQUEST,
           'Invalid request: kioskId is required')) {
-        logWarn('Session', 'Stop monitoring failed: Missing kioskId', { clientId });
+        logWarn('Session', 'Stop monitoring failed: Missing kioskId', {
+          clientId
+        });
         return;
       }
 
       // Guard: Session must exist
       if (!validateOrError(socket, sessionsState.hasActiveSession(kioskId), ERROR_CODES.SESSION_NOT_FOUND,
           `No active session found for kiosk ${kioskId}`)) {
-        logWarn('Session', 'Stop monitoring failed: Session not found', { clientId, kioskId });
+        logWarn('Session', 'Stop monitoring failed: Session not found', {
+          clientId,
+          kioskId
+        });
         return;
       }
 
@@ -349,7 +421,9 @@ export const initializeSocket = (io) => {
           kioskId,
           error: error.message
         });
-        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to stop monitoring', { error: error.message });
+        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to stop monitoring', {
+          error: error.message
+        });
       }
     });
 
@@ -363,8 +437,11 @@ export const initializeSocket = (io) => {
      * - KIOSK ↔ MONITOR pairing is correct
      */
     socket.on('offer', (data) => {
-      const { targetId, offer } = data || {};
-      
+      const {
+        targetId,
+        offer
+      } = data || {};
+
       logDebug('WebRTC', 'Offer received', {
         fromId: clientId,
         targetId,
@@ -392,8 +469,9 @@ export const initializeSocket = (io) => {
           resetAt: rateLimit.resetAt
         });
         emitError(socket, ERROR_CODES.RATE_LIMIT_EXCEEDED,
-            `Rate limit exceeded: ${rateLimit.current}/${rateLimit.limit} offers per minute`,
-            { resetAt: rateLimit.resetAt.toISOString() });
+          `Rate limit exceeded: ${rateLimit.current}/${rateLimit.limit} offers per minute`, {
+            resetAt: rateLimit.resetAt.toISOString()
+          });
         return;
       }
 
@@ -483,8 +561,11 @@ export const initializeSocket = (io) => {
      * - KIOSK ↔ MONITOR pairing is correct
      */
     socket.on('answer', (data) => {
-      const { targetId, answer } = data || {};
-      
+      const {
+        targetId,
+        answer
+      } = data || {};
+
       logDebug('WebRTC', 'Answer received', {
         fromId: clientId,
         targetId,
@@ -512,8 +593,9 @@ export const initializeSocket = (io) => {
           resetAt: rateLimit.resetAt
         });
         emitError(socket, ERROR_CODES.RATE_LIMIT_EXCEEDED,
-            `Rate limit exceeded: ${rateLimit.current}/${rateLimit.limit} answers per minute`,
-            { resetAt: rateLimit.resetAt.toISOString() });
+          `Rate limit exceeded: ${rateLimit.current}/${rateLimit.limit} answers per minute`, {
+            resetAt: rateLimit.resetAt.toISOString()
+          });
         return;
       }
 
@@ -603,8 +685,11 @@ export const initializeSocket = (io) => {
      * - KIOSK ↔ MONITOR pairing is correct
      */
     socket.on('ice-candidate', (data) => {
-      const { targetId, candidate } = data || {};
-      
+      const {
+        targetId,
+        candidate
+      } = data || {};
+
       logDebug('WebRTC', 'ICE candidate received', {
         fromId: clientId,
         targetId,
@@ -632,8 +717,9 @@ export const initializeSocket = (io) => {
           resetAt: rateLimit.resetAt
         });
         emitError(socket, ERROR_CODES.RATE_LIMIT_EXCEEDED,
-            `Rate limit exceeded: ${rateLimit.current}/${rateLimit.limit} ICE candidates per minute`,
-            { resetAt: rateLimit.resetAt.toISOString() });
+          `Rate limit exceeded: ${rateLimit.current}/${rateLimit.limit} ICE candidates per minute`, {
+            resetAt: rateLimit.resetAt.toISOString()
+          });
         return;
       }
 
@@ -718,28 +804,33 @@ export const initializeSocket = (io) => {
      * KIOSK clients send heartbeat to keep connection alive
      */
     socket.on('heartbeat-ping', () => {
-      logDebug('Heartbeat', 'Heartbeat ping received', { clientId });
-      
+      logDebug('Heartbeat', 'Heartbeat ping received', {
+        clientId
+      });
+
       // Guard: Only KIOSK can send heartbeat
       if (!validateOrError(socket, role === ROLES.KIOSK, ERROR_CODES.OPERATION_NOT_ALLOWED,
           'Unauthorized: Only KIOSK clients can send heartbeat')) {
-        logWarn('Heartbeat', 'Heartbeat ping failed: Invalid role', { clientId, role });
+        logWarn('Heartbeat', 'Heartbeat ping failed: Invalid role', {
+          clientId,
+          role
+        });
         return;
       }
 
       try {
         // Process heartbeat
         const result = processHeartbeatPing(clientId);
-        
+
         if (result.valid) {
           // Update last seen timestamp
           kiosksState.updateLastSeen(clientId);
-          
+
           // Respond with pong
           socket.emit('heartbeat-pong', {
             timestamp: result.timestamp
           });
-          
+
           logDebug('Heartbeat', 'Heartbeat pong sent', {
             clientId,
             timestamp: result.timestamp
@@ -750,7 +841,9 @@ export const initializeSocket = (io) => {
           clientId,
           error: error.message
         });
-        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to process heartbeat', { error: error.message });
+        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to process heartbeat', {
+          error: error.message
+        });
       }
     });
 
@@ -765,18 +858,23 @@ export const initializeSocket = (io) => {
         employeeId: payload?.employeeId,
         name: payload?.name
       });
-      
+
       // Guard: Only KIOSK role can emit crew events
       if (!validateOrError(socket, role === ROLES.KIOSK, ERROR_CODES.CREW_EVENT_UNAUTHORIZED,
           'Unauthorized: Only KIOSK clients can emit crew sign-on events')) {
-        logWarn('CrewEvent', 'Crew sign-on failed: Invalid role', { clientId, role });
+        logWarn('CrewEvent', 'Crew sign-on failed: Invalid role', {
+          clientId,
+          role
+        });
         return;
       }
 
       // Guard: Kiosk must be registered
       if (!validateOrError(socket, kiosksState.getKiosk(clientId), ERROR_CODES.CLIENT_NOT_REGISTERED,
           'Kiosk not registered')) {
-        logWarn('CrewEvent', 'Crew sign-on failed: Kiosk not registered', { clientId });
+        logWarn('CrewEvent', 'Crew sign-on failed: Kiosk not registered', {
+          clientId
+        });
         return;
       }
 
@@ -790,8 +888,9 @@ export const initializeSocket = (io) => {
           resetAt: rateLimit.resetAt
         });
         emitError(socket, ERROR_CODES.RATE_LIMIT_EXCEEDED,
-            `Rate limit exceeded: ${rateLimit.current}/${rateLimit.limit} sign-ons per minute`,
-            { resetAt: rateLimit.resetAt.toISOString() });
+          `Rate limit exceeded: ${rateLimit.current}/${rateLimit.limit} sign-ons per minute`, {
+            resetAt: rateLimit.resetAt.toISOString()
+          });
         return;
       }
 
@@ -803,7 +902,9 @@ export const initializeSocket = (io) => {
           errors: validation.errors
         });
         emitError(socket, ERROR_CODES.CREW_EVENT_INVALID_PAYLOAD,
-            'Invalid payload', { errors: validation.errors });
+          'Invalid payload', {
+            errors: validation.errors
+          });
         return;
       }
 
@@ -821,7 +922,7 @@ export const initializeSocket = (io) => {
         employeeId: payload.employeeId,
         timestamp: new Date().toISOString()
       });
-      
+
       logInfo('CrewEvent', 'Crew sign-on acknowledged', {
         clientId,
         employeeId: payload.employeeId
@@ -839,18 +940,23 @@ export const initializeSocket = (io) => {
         employeeId: payload?.employeeId,
         name: payload?.name
       });
-      
+
       // Guard: Only KIOSK role can emit crew events
       if (!validateOrError(socket, role === ROLES.KIOSK, ERROR_CODES.CREW_EVENT_UNAUTHORIZED,
           'Unauthorized: Only KIOSK clients can emit crew sign-off events')) {
-        logWarn('CrewEvent', 'Crew sign-off failed: Invalid role', { clientId, role });
+        logWarn('CrewEvent', 'Crew sign-off failed: Invalid role', {
+          clientId,
+          role
+        });
         return;
       }
 
       // Guard: Kiosk must be registered
       if (!validateOrError(socket, kiosksState.getKiosk(clientId), ERROR_CODES.CLIENT_NOT_REGISTERED,
           'Kiosk not registered')) {
-        logWarn('CrewEvent', 'Crew sign-off failed: Kiosk not registered', { clientId });
+        logWarn('CrewEvent', 'Crew sign-off failed: Kiosk not registered', {
+          clientId
+        });
         return;
       }
 
@@ -864,8 +970,9 @@ export const initializeSocket = (io) => {
           resetAt: rateLimit.resetAt
         });
         emitError(socket, ERROR_CODES.RATE_LIMIT_EXCEEDED,
-            `Rate limit exceeded: ${rateLimit.current}/${rateLimit.limit} sign-offs per minute`,
-            { resetAt: rateLimit.resetAt.toISOString() });
+          `Rate limit exceeded: ${rateLimit.current}/${rateLimit.limit} sign-offs per minute`, {
+            resetAt: rateLimit.resetAt.toISOString()
+          });
         return;
       }
 
@@ -877,7 +984,9 @@ export const initializeSocket = (io) => {
           errors: validation.errors
         });
         emitError(socket, ERROR_CODES.CREW_EVENT_INVALID_PAYLOAD,
-            'Invalid payload', { errors: validation.errors });
+          'Invalid payload', {
+            errors: validation.errors
+          });
         return;
       }
 
@@ -895,11 +1004,568 @@ export const initializeSocket = (io) => {
         employeeId: payload.employeeId,
         timestamp: new Date().toISOString()
       });
-      
+
       logInfo('CrewEvent', 'Crew sign-off acknowledged', {
         clientId,
         employeeId: payload.employeeId
       });
+    });
+
+    /**
+     * Call Control: Request Call
+     * Either MONITOR or KIOSK can request a call
+     * Requires active monitoring session
+     */
+    socket.on('call-request', (data) => {
+      // Log immediately to verify event is received
+      console.log('[DEBUG] call-request event received', {
+        clientId,
+        role,
+        data
+      });
+
+      const {
+        kioskId
+      } = data || {};
+
+      logInfo('Call', 'Call request received', {
+        fromId: clientId,
+        role,
+        kioskId,
+        socketId: socket.id
+      });
+
+      // Determine kioskId based on role
+      const targetKioskId = role === ROLES.KIOSK ? clientId : kioskId;
+
+      if (!targetKioskId) {
+        emitError(socket, ERROR_CODES.INVALID_REQUEST, 'kioskId is required');
+        return;
+      }
+
+      // Guard: Active session must exist
+      if (!validateOrError(socket, sessionsState.hasActiveSession(targetKioskId),
+          ERROR_CODES.SIGNALING_NO_SESSION,
+          `No active monitoring session for kiosk ${targetKioskId}`)) {
+        return;
+      }
+
+      const session = sessionsState.getSession(targetKioskId);
+
+      // Guard: Validate session ownership/participation
+      if (role === ROLES.MONITOR) {
+        if (!validateOrError(socket, session.monitorSocketId === socket.id,
+            ERROR_CODES.SESSION_NOT_AUTHORIZED,
+            'Unauthorized: You do not own this monitoring session')) {
+          return;
+        }
+      } else if (role === ROLES.KIOSK) {
+        if (!validateOrError(socket, session.kioskId === clientId,
+            ERROR_CODES.SESSION_NOT_AUTHORIZED,
+            'Unauthorized: Invalid kiosk for this session')) {
+          return;
+        }
+      }
+
+      // Guard: Check if call is already in progress
+      const callState = sessionsState.getCallState(targetKioskId);
+      if (callState?.callState === 'connecting' || callState?.callState === 'connected') {
+        emitError(socket, ERROR_CODES.CALL_ALREADY_IN_PROGRESS,
+          'A call is already in progress for this session');
+        return;
+      }
+
+      try {
+        // Update call state
+        const initiatedBy = role === ROLES.MONITOR ? 'monitor' : 'kiosk';
+        sessionsState.updateCallState(targetKioskId, 'connecting', initiatedBy);
+
+        // Determine target
+        const targetSocketId = role === ROLES.MONITOR ?
+          kiosksState.getKiosk(targetKioskId)?.socketId :
+          session.monitorSocketId;
+
+        logDebug('Call', 'Target socket lookup', {
+          role,
+          targetKioskId,
+          targetSocketId,
+          kioskExists: !!kiosksState.getKiosk(targetKioskId)
+        });
+
+        if (targetSocketId) {
+          const targetSocket = io.sockets.sockets.get(targetSocketId);
+          if (targetSocket) {
+            targetSocket.emit('call-request', {
+              fromId: clientId,
+              fromRole: role,
+              kioskId: targetKioskId,
+              timestamp: new Date().toISOString()
+            });
+
+            socket.emit('call-request-sent', {
+              kioskId: targetKioskId,
+              timestamp: new Date().toISOString()
+            });
+
+            logInfo('Call', 'Call request forwarded', {
+              fromId: clientId,
+              toId: role === ROLES.MONITOR ? targetKioskId : session.monitorId,
+              kioskId: targetKioskId
+            });
+          } else {
+            emitError(socket, ERROR_CODES.SIGNALING_INVALID_TARGET, 'Target socket not found');
+          }
+        } else {
+          emitError(socket, ERROR_CODES.SIGNALING_INVALID_TARGET, 'Target not found');
+        }
+      } catch (error) {
+        logError('Call', 'Failed to process call request', {
+          clientId,
+          kioskId: targetKioskId,
+          error: error.message
+        });
+        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to process call request');
+      }
+    });
+
+    /**
+     * Call Control: Accept Call
+     * The other party accepts the call request
+     */
+    socket.on('call-accept', (data) => {
+      const {
+        kioskId
+      } = data || {};
+
+      logInfo('Call', 'Call accept received', {
+        fromId: clientId,
+        role,
+        kioskId,
+        socketId: socket.id
+      });
+
+      const targetKioskId = role === ROLES.KIOSK ? clientId : kioskId;
+
+      if (!targetKioskId) {
+        emitError(socket, ERROR_CODES.INVALID_REQUEST, 'kioskId is required');
+        return;
+      }
+
+      // Guard: Active session must exist
+      if (!validateOrError(socket, sessionsState.hasActiveSession(targetKioskId),
+          ERROR_CODES.SIGNALING_NO_SESSION,
+          `No active monitoring session for kiosk ${targetKioskId}`)) {
+        return;
+      }
+
+      const session = sessionsState.getSession(targetKioskId);
+      const callState = sessionsState.getCallState(targetKioskId);
+
+      // Guard: Call must be in connecting state
+      if (callState?.callState !== 'connecting') {
+        emitError(socket, ERROR_CODES.CALL_INVALID_STATE,
+          'Call is not in connecting state');
+        return;
+      }
+
+      // Guard: Only the other party can accept
+      const canAccept = (role === ROLES.MONITOR && callState.callInitiatedBy === 'kiosk') ||
+        (role === ROLES.KIOSK && callState.callInitiatedBy === 'monitor');
+
+      if (!validateOrError(socket, canAccept,
+          ERROR_CODES.CALL_NOT_INITIATED,
+          'You cannot accept a call you initiated')) {
+        return;
+      }
+
+      try {
+        // Update call state to connected
+        sessionsState.updateCallState(targetKioskId, 'connected');
+
+        // Notify both parties
+        const targetSocketId = role === ROLES.MONITOR ?
+          kiosksState.getKiosk(targetKioskId)?.socketId :
+          session.monitorSocketId;
+
+        if (targetSocketId) {
+          const targetSocket = io.sockets.sockets.get(targetSocketId);
+          if (targetSocket) {
+            targetSocket.emit('call-accepted', {
+              fromId: clientId,
+              kioskId: targetKioskId,
+              timestamp: new Date().toISOString()
+            });
+
+            socket.emit('call-accept-confirmed', {
+              kioskId: targetKioskId,
+              timestamp: new Date().toISOString()
+            });
+
+            logInfo('Call', 'Call accepted', {
+              kioskId: targetKioskId,
+              acceptedBy: clientId
+            });
+          }
+        }
+      } catch (error) {
+        logError('Call', 'Failed to accept call', {
+          clientId,
+          kioskId: targetKioskId,
+          error: error.message
+        });
+        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to accept call');
+      }
+    });
+
+    /**
+     * Call Control: Reject Call
+     * The other party rejects the call request
+     */
+    socket.on('call-reject', (data) => {
+      const {
+        kioskId
+      } = data || {};
+
+      logInfo('Call', 'Call reject received', {
+        fromId: clientId,
+        role,
+        kioskId,
+        socketId: socket.id
+      });
+
+      const targetKioskId = role === ROLES.KIOSK ? clientId : kioskId;
+
+      if (!targetKioskId) {
+        emitError(socket, ERROR_CODES.INVALID_REQUEST, 'kioskId is required');
+        return;
+      }
+
+      // Guard: Active session must exist
+      if (!validateOrError(socket, sessionsState.hasActiveSession(targetKioskId),
+          ERROR_CODES.SIGNALING_NO_SESSION,
+          `No active monitoring session for kiosk ${targetKioskId}`)) {
+        return;
+      }
+
+      const session = sessionsState.getSession(targetKioskId);
+      const callState = sessionsState.getCallState(targetKioskId);
+
+      // Guard: Call must be in connecting state
+      if (callState?.callState !== 'connecting') {
+        emitError(socket, ERROR_CODES.CALL_INVALID_STATE,
+          'Call is not in connecting state');
+        return;
+      }
+
+      try {
+        // Reset call state to idle
+        sessionsState.updateCallState(targetKioskId, 'idle');
+
+        // Notify the initiator
+        const targetSocketId = role === ROLES.MONITOR ?
+          kiosksState.getKiosk(targetKioskId)?.socketId :
+          session.monitorSocketId;
+
+        if (targetSocketId) {
+          const targetSocket = io.sockets.sockets.get(targetSocketId);
+          if (targetSocket) {
+            targetSocket.emit('call-rejected', {
+              fromId: clientId,
+              kioskId: targetKioskId,
+              timestamp: new Date().toISOString()
+            });
+
+            socket.emit('call-reject-confirmed', {
+              kioskId: targetKioskId,
+              timestamp: new Date().toISOString()
+            });
+
+            logInfo('Call', 'Call rejected', {
+              kioskId: targetKioskId,
+              rejectedBy: clientId
+            });
+          }
+        }
+      } catch (error) {
+        logError('Call', 'Failed to reject call', {
+          clientId,
+          kioskId: targetKioskId,
+          error: error.message
+        });
+        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to reject call');
+      }
+    });
+
+    /**
+     * Call Control: End Call
+     * Either party can end an active call
+     */
+    socket.on('call-end', (data) => {
+      const {
+        kioskId
+      } = data || {};
+
+      logInfo('Call', 'Call end received', {
+        fromId: clientId,
+        role,
+        kioskId,
+        socketId: socket.id
+      });
+
+      const targetKioskId = role === ROLES.KIOSK ? clientId : kioskId;
+
+      if (!targetKioskId) {
+        emitError(socket, ERROR_CODES.INVALID_REQUEST, 'kioskId is required');
+        return;
+      }
+
+      // Guard: Active session must exist
+      if (!validateOrError(socket, sessionsState.hasActiveSession(targetKioskId),
+          ERROR_CODES.SIGNALING_NO_SESSION,
+          `No active monitoring session for kiosk ${targetKioskId}`)) {
+        return;
+      }
+
+      const session = sessionsState.getSession(targetKioskId);
+      const callState = sessionsState.getCallState(targetKioskId);
+
+      // Guard: Call must be connected
+      if (callState?.callState !== 'connected') {
+        emitError(socket, ERROR_CODES.CALL_INVALID_STATE,
+          'No active call to end');
+        return;
+      }
+
+      try {
+        // Update call state to ended
+        sessionsState.updateCallState(targetKioskId, 'ended');
+
+        // Notify the other party
+        const targetSocketId = role === ROLES.MONITOR ?
+          kiosksState.getKiosk(targetKioskId)?.socketId :
+          session.monitorSocketId;
+
+        if (targetSocketId) {
+          const targetSocket = io.sockets.sockets.get(targetSocketId);
+          if (targetSocket) {
+            targetSocket.emit('call-ended', {
+              fromId: clientId,
+              kioskId: targetKioskId,
+              timestamp: new Date().toISOString()
+            });
+
+            socket.emit('call-end-confirmed', {
+              kioskId: targetKioskId,
+              timestamp: new Date().toISOString()
+            });
+
+            logInfo('Call', 'Call ended', {
+              kioskId: targetKioskId,
+              endedBy: clientId
+            });
+          }
+        }
+
+        // Reset call state to idle after a short delay
+        setTimeout(() => {
+          sessionsState.updateCallState(targetKioskId, 'idle');
+        }, 1000);
+      } catch (error) {
+        logError('Call', 'Failed to end call', {
+          clientId,
+          kioskId: targetKioskId,
+          error: error.message
+        });
+        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to end call');
+      }
+    });
+
+    /**
+     * Media Control: Toggle Video
+     * Either party can toggle their video on/off
+     */
+    socket.on('toggle-video', (data) => {
+      const {
+        kioskId,
+        enabled
+      } = data || {};
+
+      logInfo('Media', 'Toggle video received', {
+        fromId: clientId,
+        role,
+        kioskId,
+        enabled,
+        socketId: socket.id
+      });
+
+      const targetKioskId = role === ROLES.KIOSK ? clientId : kioskId;
+
+      if (!targetKioskId || enabled === undefined) {
+        emitError(socket, ERROR_CODES.INVALID_REQUEST, 'kioskId and enabled are required');
+        return;
+      }
+
+      // Guard: Active session must exist
+      if (!validateOrError(socket, sessionsState.hasActiveSession(targetKioskId),
+          ERROR_CODES.SIGNALING_NO_SESSION,
+          `No active monitoring session for kiosk ${targetKioskId}`)) {
+        return;
+      }
+
+      const session = sessionsState.getSession(targetKioskId);
+
+      // Guard: Validate session ownership/participation
+      if (role === ROLES.MONITOR) {
+        if (!validateOrError(socket, session.monitorSocketId === socket.id,
+            ERROR_CODES.SESSION_NOT_AUTHORIZED,
+            'Unauthorized: You do not own this monitoring session')) {
+          return;
+        }
+      } else if (role === ROLES.KIOSK) {
+        if (!validateOrError(socket, session.kioskId === clientId,
+            ERROR_CODES.SESSION_NOT_AUTHORIZED,
+            'Unauthorized: Invalid kiosk for this session')) {
+          return;
+        }
+      }
+
+      try {
+        // Update media state
+        const roleKey = role === ROLES.MONITOR ? 'monitor' : 'kiosk';
+        sessionsState.updateMediaState(targetKioskId, roleKey, {
+          videoEnabled: enabled
+        });
+
+        // Notify the other party
+        const targetSocketId = role === ROLES.MONITOR ?
+          kiosksState.getKiosk(targetKioskId)?.socketId :
+          session.monitorSocketId;
+
+        if (targetSocketId) {
+          const targetSocket = io.sockets.sockets.get(targetSocketId);
+          if (targetSocket) {
+            targetSocket.emit('video-toggled', {
+              fromId: clientId,
+              kioskId: targetKioskId,
+              enabled,
+              timestamp: new Date().toISOString()
+            });
+
+            socket.emit('video-toggle-confirmed', {
+              kioskId: targetKioskId,
+              enabled,
+              timestamp: new Date().toISOString()
+            });
+
+            logInfo('Media', 'Video toggled', {
+              kioskId: targetKioskId,
+              role: roleKey,
+              enabled
+            });
+          }
+        }
+      } catch (error) {
+        logError('Media', 'Failed to toggle video', {
+          clientId,
+          kioskId: targetKioskId,
+          error: error.message
+        });
+        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to toggle video');
+      }
+    });
+
+    /**
+     * Media Control: Toggle Audio (Mute/Unmute)
+     * Either party can toggle their audio on/off
+     */
+    socket.on('toggle-audio', (data) => {
+      const {
+        kioskId,
+        enabled
+      } = data || {};
+
+      logInfo('Media', 'Toggle audio received', {
+        fromId: clientId,
+        role,
+        kioskId,
+        enabled,
+        socketId: socket.id
+      });
+
+      const targetKioskId = role === ROLES.KIOSK ? clientId : kioskId;
+
+      if (!targetKioskId || enabled === undefined) {
+        emitError(socket, ERROR_CODES.INVALID_REQUEST, 'kioskId and enabled are required');
+        return;
+      }
+
+      // Guard: Active session must exist
+      if (!validateOrError(socket, sessionsState.hasActiveSession(targetKioskId),
+          ERROR_CODES.SIGNALING_NO_SESSION,
+          `No active monitoring session for kiosk ${targetKioskId}`)) {
+        return;
+      }
+
+      const session = sessionsState.getSession(targetKioskId);
+
+      // Guard: Validate session ownership/participation
+      if (role === ROLES.MONITOR) {
+        if (!validateOrError(socket, session.monitorSocketId === socket.id,
+            ERROR_CODES.SESSION_NOT_AUTHORIZED,
+            'Unauthorized: You do not own this monitoring session')) {
+          return;
+        }
+      } else if (role === ROLES.KIOSK) {
+        if (!validateOrError(socket, session.kioskId === clientId,
+            ERROR_CODES.SESSION_NOT_AUTHORIZED,
+            'Unauthorized: Invalid kiosk for this session')) {
+          return;
+        }
+      }
+
+      try {
+        // Update media state
+        const roleKey = role === ROLES.MONITOR ? 'monitor' : 'kiosk';
+        sessionsState.updateMediaState(targetKioskId, roleKey, {
+          audioEnabled: enabled
+        });
+
+        // Notify the other party
+        const targetSocketId = role === ROLES.MONITOR ?
+          kiosksState.getKiosk(targetKioskId)?.socketId :
+          session.monitorSocketId;
+
+        if (targetSocketId) {
+          const targetSocket = io.sockets.sockets.get(targetSocketId);
+          if (targetSocket) {
+            targetSocket.emit('audio-toggled', {
+              fromId: clientId,
+              kioskId: targetKioskId,
+              enabled,
+              timestamp: new Date().toISOString()
+            });
+
+            socket.emit('audio-toggle-confirmed', {
+              kioskId: targetKioskId,
+              enabled,
+              timestamp: new Date().toISOString()
+            });
+
+            logInfo('Media', 'Audio toggled', {
+              kioskId: targetKioskId,
+              role: roleKey,
+              enabled
+            });
+          }
+        }
+      } catch (error) {
+        logError('Media', 'Failed to toggle audio', {
+          clientId,
+          kioskId: targetKioskId,
+          error: error.message
+        });
+        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to toggle audio');
+      }
     });
 
     /**
@@ -924,21 +1590,25 @@ export const initializeSocket = (io) => {
         if (role === ROLES.KIOSK) {
           // Remove heartbeat tracking
           removeHeartbeat(clientId);
-          logInfo('Socket', 'Heartbeat tracking removed', { clientId });
+          logInfo('Socket', 'Heartbeat tracking removed', {
+            clientId
+          });
 
           // Mark kiosk as offline
           kiosksState.markOffline(clientId);
 
           // End any active sessions for this kiosk
           const endedSession = sessionsState.endSessionByKiosk(clientId);
-          
+
           // Notify monitors of kiosk going offline
           io.to('monitors').emit('kiosk-offline', {
             kioskId: clientId,
             timestamp: new Date().toISOString(),
             reason: 'disconnect'
           });
-          logInfo('Socket', 'Kiosk offline notification sent to monitors', { clientId });
+          logInfo('Socket', 'Kiosk offline notification sent to monitors', {
+            clientId
+          });
 
           // Notify monitors of session end if session existed
           if (endedSession) {
@@ -957,7 +1627,9 @@ export const initializeSocket = (io) => {
 
           // Remove kiosk from state
           kiosksState.removeKiosk(clientId);
-          logInfo('Socket', 'Kiosk removed from state', { clientId });
+          logInfo('Socket', 'Kiosk removed from state', {
+            clientId
+          });
 
         } else if (role === ROLES.MONITOR) {
           // End all active sessions owned by this monitor (one monitor can have multiple kiosk sessions)
@@ -977,14 +1649,21 @@ export const initializeSocket = (io) => {
 
           // Remove monitor from state
           monitorsState.removeMonitor(clientId);
-          logInfo('Socket', 'Monitor removed from state', { clientId });
+          logInfo('Socket', 'Monitor removed from state', {
+            clientId
+          });
         }
 
         // Clean up rate limits
         resetAllRateLimits(clientId);
-        logInfo('Socket', 'Rate limits reset', { clientId });
+        logInfo('Socket', 'Rate limits reset', {
+          clientId
+        });
 
-        logInfo('Socket', 'Disconnect cleanup completed', { clientId, role });
+        logInfo('Socket', 'Disconnect cleanup completed', {
+          clientId,
+          role
+        });
       } catch (error) {
         logError('Socket', 'Error during disconnect cleanup', {
           clientId,
