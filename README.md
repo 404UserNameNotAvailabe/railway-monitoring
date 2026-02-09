@@ -71,14 +71,7 @@ All Socket.IO connections require a valid JWT token. The token must include:
 
 ### Generating Test Tokens
 
-Use the helper script to generate test tokens:
-
-```bash
-node scripts/generate-token.js KIOSK_01 KIOSK
-node scripts/generate-token.js MONITOR_01 MONITOR
-```
-
-Or use the auth middleware directly:
+Use the auth middleware directly:
 
 ```javascript
 import { generateToken } from './src/auth/auth.middleware.js';
