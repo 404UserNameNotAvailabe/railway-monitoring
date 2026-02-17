@@ -107,8 +107,16 @@ export const initializeSocket = (io) => {
   io.on('connection', (socket) => {
     const {
       role,
-      clientId
+      clientId,
+      user: appUser
     } = socket.data;
+
+    /** Only KIOSK can share; if app JWT, must be USER role (ADMIN must not share). Legacy token has no appUser. */
+    const canKioskShare = () => {
+      if (role !== ROLES.KIOSK) return false;
+      if (!appUser) return true;
+      return appUser.role === 'USER';
+    };
 
     logInfo('Socket', 'Client connected', {
       clientId,
@@ -145,16 +153,19 @@ export const initializeSocket = (io) => {
       // Guard: Only KIOSK role can register as kiosk
       if (!validateOrError(socket, role === ROLES.KIOSK, ERROR_CODES.AUTH_INVALID_ROLE,
           'Unauthorized: Only KIOSK clients can register as kiosk')) {
-        logWarn('Socket', 'Register kiosk failed: Invalid role', {
-          clientId,
-          role
-        });
+        logWarn('Socket', 'Register kiosk failed: Invalid role', { clientId, role });
+        return;
+      }
+      // Guard: App USER must be logged in to share; ADMIN must not share
+      if (!validateOrError(socket, canKioskShare(), ERROR_CODES.AUTH_INVALID_ROLE,
+          'Unauthorized: Only logged-in USER can register as kiosk')) {
+        logWarn('Socket', 'Register kiosk failed: Not allowed for this role', { clientId });
         return;
       }
 
       try {
-        // Register kiosk in state
-        const kioskData = kiosksState.registerKiosk(clientId, socket.id);
+        const kioskUserId = appUser ? appUser.userId : null;
+        const kioskData = kiosksState.registerKiosk(clientId, socket.id, kioskUserId);
 
         // Notify all monitors that this kiosk is online
         io.to('monitors').emit('kiosk-online', {
@@ -316,8 +327,9 @@ export const initializeSocket = (io) => {
       }
 
       try {
-        // Create new session
-        const session = sessionsState.createSession(kioskId, clientId, socket.id);
+        const kiosk = kiosksState.getKiosk(kioskId);
+        const kioskUserId = kiosk?.userId ?? null;
+        const session = sessionsState.createSession(kioskId, clientId, socket.id, kioskUserId);
 
         socket.emit('monitoring-started', {
           kioskId,
@@ -1042,6 +1054,10 @@ export const initializeSocket = (io) => {
         emitError(socket, ERROR_CODES.INVALID_REQUEST, 'kioskId is required');
         return;
       }
+      if (role === ROLES.KIOSK && !validateOrError(socket, canKioskShare(), ERROR_CODES.AUTH_INVALID_ROLE,
+          'Unauthorized: Only logged-in USER can request call')) {
+        return;
+      }
 
       // Guard: Active session must exist
       if (!validateOrError(socket, sessionsState.hasActiveSession(targetKioskId),
@@ -1404,6 +1420,10 @@ export const initializeSocket = (io) => {
         emitError(socket, ERROR_CODES.INVALID_REQUEST, 'kioskId and enabled are required');
         return;
       }
+      if (role === ROLES.KIOSK && !validateOrError(socket, canKioskShare(), ERROR_CODES.AUTH_INVALID_ROLE,
+          'Unauthorized: Only logged-in USER can toggle video')) {
+        return;
+      }
 
       // Guard: Active session must exist
       if (!validateOrError(socket, sessionsState.hasActiveSession(targetKioskId),
@@ -1496,6 +1516,10 @@ export const initializeSocket = (io) => {
 
       if (!targetKioskId || enabled === undefined) {
         emitError(socket, ERROR_CODES.INVALID_REQUEST, 'kioskId and enabled are required');
+        return;
+      }
+      if (role === ROLES.KIOSK && !validateOrError(socket, canKioskShare(), ERROR_CODES.AUTH_INVALID_ROLE,
+          'Unauthorized: Only logged-in USER can toggle audio')) {
         return;
       }
 

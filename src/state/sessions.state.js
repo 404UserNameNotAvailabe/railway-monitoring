@@ -30,19 +30,19 @@ let SESSION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes default
 
 /**
  * Create a new monitoring session
- * 
+ *
  * @param {string} kioskId - Kiosk identifier being monitored
  * @param {string} monitorId - Monitor identifier
  * @param {string} monitorSocketId - Monitor's socket ID
+ * @param {string|null} [kioskUserId] - Optional DB user id of the kiosk (for session binding)
  * @returns {Object} Created session data
  * @throws {Error} If session already exists for this kiosk
  */
-export const createSession = (kioskId, monitorId, monitorSocketId) => {
+export const createSession = (kioskId, monitorId, monitorSocketId, kioskUserId = null) => {
   if (!kioskId || !monitorId || !monitorSocketId) {
     throw new Error('kioskId, monitorId, and monitorSocketId are required');
   }
 
-  // Check if session already exists for this kiosk
   if (sessions.has(kioskId)) {
     throw new Error(`Session already exists for kiosk: ${kioskId}`);
   }
@@ -51,6 +51,7 @@ export const createSession = (kioskId, monitorId, monitorSocketId) => {
     kioskId,
     monitorId,
     monitorSocketId,
+    userId: kioskUserId ?? null,
     startedAt: new Date(),
     lastActivityAt: new Date(),
     status: 'active',

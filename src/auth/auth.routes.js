@@ -1,12 +1,14 @@
 /**
  * Authentication API Routes
- * 
- * Handles login and token generation for Flutter apps
+ *
+ * Application login: POST /login with user_id + password (DB, JWT with userId/role).
+ * Legacy: device-token, register, etc. for backward compatibility.
  */
 
 import express from 'express';
 import { generateToken, ROLES } from './auth.middleware.js';
 import { logInfo, logWarn, logError } from '../utils/logger.js';
+import * as authController from '../modules/auth/auth.controller.js';
 
 const router = express.Router();
 
@@ -43,124 +45,11 @@ if (users.size === 0) {
 
 /**
  * POST /api/auth/login
- * 
- * Authenticates user and returns JWT token
- * 
- * Request Body:
- * {
- *   "username": "user@gmail.com",
- *   "password": "user123",
- *   "userType": "user"  // "user" = KIOSK, "monitor" = MONITOR
- * }
- * 
- * Response:
- * {
- *   "success": true,
- *   "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
- *   "user": {
- *     "clientId": "KIOSK_01",
- *     "role": "KIOSK",
- *     "name": "Test User"
- *   }
- * }
+ *
+ * Application login: body { user_id, password }. Returns accessToken, role, user (JWT has userId, role ADMIN|USER).
  */
-router.post('/login', async (req, res) => {
-  try {
-    const { username, password, userType } = req.body;
-
-    logInfo('Auth', 'Login attempt', {
-      username,
-      userType,
-      ip: req.ip
-    });
-
-    // Validate request body
-    if (!username || !password) {
-      logWarn('Auth', 'Login failed: Missing credentials', {
-        username: !!username,
-        password: !!password,
-        ip: req.ip
-      });
-      return res.status(400).json({
-        success: false,
-        error: 'Missing required fields: username and password are required'
-      });
-    }
-
-    // Find user
-    const user = users.get(username);
-    
-    if (!user) {
-      logWarn('Auth', 'Login failed: User not found', {
-        username,
-        ip: req.ip
-      });
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid credentials'
-      });
-    }
-
-    // Validate password
-    if (user.password !== password) {
-      logWarn('Auth', 'Login failed: Invalid password', {
-        username,
-        ip: req.ip
-      });
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid credentials'
-      });
-    }
-
-    // Validate userType matches (optional check)
-    if (userType && user.userType !== userType) {
-      logWarn('Auth', 'Login failed: UserType mismatch', {
-        username,
-        expectedUserType: user.userType,
-        providedUserType: userType,
-        ip: req.ip
-      });
-      return res.status(403).json({
-        success: false,
-        error: `User type mismatch. Expected: ${user.userType}`
-      });
-    }
-
-    // Generate JWT token
-    const token = generateToken(user.clientId, user.role);
-
-    logInfo('Auth', 'Login successful', {
-      username,
-      clientId: user.clientId,
-      role: user.role,
-      ip: req.ip
-    });
-
-    // Return success response
-    res.json({
-      success: true,
-      token,
-      user: {
-        clientId: user.clientId,
-        role: user.role,
-        name: user.name || username,
-        userType: user.userType
-      }
-    });
-
-  } catch (error) {
-    logError('Auth', 'Login error', {
-      error: error.message,
-      stack: error.stack,
-      ip: req.ip
-    });
-    
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error'
-    });
-  }
+router.post('/login', (req, res, next) => {
+  authController.login(req, res).catch(next);
 });
 
 /**
