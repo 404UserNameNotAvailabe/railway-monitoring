@@ -165,16 +165,19 @@ export const initializeSocket = (io) => {
 
       try {
         const kioskUserId = appUser ? appUser.userId : null;
-        const kioskData = kiosksState.registerKiosk(clientId, socket.id, kioskUserId);
+        const kioskName = appUser?.name ?? null;
+        const kioskData = kiosksState.registerKiosk(clientId, socket.id, kioskUserId, kioskName);
 
-        // Notify all monitors that this kiosk is online
+        // Notify all monitors that this kiosk is online (include name for admin UI)
         io.to('monitors').emit('kiosk-online', {
           kioskId: clientId,
+          name: kioskData.name ?? clientId,
           timestamp: new Date().toISOString()
         });
 
         socket.emit('kiosk-registered', {
           kioskId: clientId,
+          name: kioskData.name ?? clientId,
           timestamp: new Date().toISOString()
         });
 
@@ -218,11 +221,12 @@ export const initializeSocket = (io) => {
         // Register monitor in state
         const monitorData = monitorsState.registerMonitor(clientId, socket.id);
 
-        // Send list of online kiosks
+        // Send list of online kiosks (include name for admin UI; fallback to kioskId for legacy)
         const onlineKiosks = kiosksState.getAllKiosks()
           .filter(kiosk => kiosk.status === 'online')
           .map(kiosk => ({
             kioskId: kiosk.kioskId,
+            name: kiosk.name ?? kiosk.kioskId,
             connectedAt: kiosk.registeredAt.toISOString()
           }));
 
@@ -1618,15 +1622,19 @@ export const initializeSocket = (io) => {
             clientId
           });
 
+          const kioskInfo = kiosksState.getKiosk(clientId);
+          const kioskName = kioskInfo?.name ?? clientId;
+
           // Mark kiosk as offline
           kiosksState.markOffline(clientId);
 
           // End any active sessions for this kiosk
           const endedSession = sessionsState.endSessionByKiosk(clientId);
 
-          // Notify monitors of kiosk going offline
+          // Notify monitors of kiosk going offline (include name for admin UI)
           io.to('monitors').emit('kiosk-offline', {
             kioskId: clientId,
+            name: kioskName,
             timestamp: new Date().toISOString(),
             reason: 'disconnect'
           });

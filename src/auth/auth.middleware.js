@@ -47,7 +47,11 @@ export const authenticateSocket = (socket, next) => {
       socket.data.role = socketRole;
       socket.data.clientId = String(clientId);
       socket.data.userId = decoded.userId;
-      socket.data.user = { userId: decoded.userId, role: decoded.role };
+      socket.data.user = {
+        userId: decoded.userId,
+        role: decoded.role,
+        name: decoded.name ?? null,
+      };
       logInfo('Auth', 'Client authenticated (app JWT)', {
         clientId: socket.data.clientId,
         appRole: decoded.role,

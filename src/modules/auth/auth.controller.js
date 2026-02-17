@@ -52,6 +52,7 @@ export async function login(req, res) {
       userId: user.id,
       role: user.role,
       user_id: user.user_id,
+      name: user.name,
     };
     const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 
