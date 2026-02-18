@@ -51,6 +51,37 @@ export const registerKiosk = (kioskId, socketId, userId = null, name = null) => 
 };
 
 /**
+ * Update kiosk's socket ID (e.g. on duplicate login - transfer to new socket)
+ *
+ * @param {string} kioskId - Kiosk identifier
+ * @param {string} newSocketId - New Socket.IO socket ID
+ * @returns {boolean} True if updated, false if kiosk not found
+ */
+export const updateKioskSocketId = (kioskId, newSocketId) => {
+  if (!kioskId || !newSocketId) {
+    return false;
+  }
+
+  const kiosk = kiosks.get(kioskId);
+  if (!kiosk) {
+    return false;
+  }
+
+  const oldSocketId = kiosk.socketId;
+  kiosk.socketId = newSocketId;
+  kiosk.lastSeenAt = new Date();
+  kiosk.status = 'online';
+
+  logInfo('State', 'Kiosk socket updated (e.g. duplicate login)', {
+    kioskId,
+    oldSocketId,
+    newSocketId
+  });
+
+  return true;
+};
+
+/**
  * Remove a kiosk
  * 
  * @param {string} kioskId - Kiosk identifier to remove

@@ -162,16 +162,21 @@ export const initializeSocket = (io) => {
             timestamp: new Date().toISOString()
           });
           
-          // Clean up old session
-          kiosksState.removeKiosk(clientId);
-          io.to('monitors').emit('kiosk-offline', {
-            kioskId: clientId,
-            name: appUser.name ?? clientId,
-            timestamp: new Date().toISOString(),
-            reason: 'duplicate-login'
-          });
+          // Transfer kiosk to new socket instead of removing (so kiosk stays "online" for monitors)
+          const transferred = kiosksState.updateKioskSocketId(clientId, socket.id);
+          if (transferred) {
+            logInfo('Socket', 'Kiosk transferred to new socket (duplicate login)', {
+              clientId,
+              newSocketId: socket.id,
+              previousSocketId
+            });
+            // Do NOT emit kiosk-offline - kiosk is still online, just with new socket
+          } else {
+            // Kiosk was not in state (e.g. old socket had not registered yet); new socket will register
+            kiosksState.removeKiosk(clientId);
+          }
           
-          // Disconnect old socket
+          // Disconnect old socket (its disconnect handler will skip kiosk removal if socketId was transferred)
           previousSocket.disconnect(true);
         }
       }
@@ -1890,52 +1895,63 @@ export const initializeSocket = (io) => {
 
       try {
         if (role === ROLES.KIOSK) {
-          // Remove heartbeat tracking
+          // Remove heartbeat tracking for this connection
           removeHeartbeat(clientId);
           logInfo('Socket', 'Heartbeat tracking removed', {
             clientId
           });
 
-          const kioskInfo = kiosksState.getKiosk(clientId);
-          const kioskName = kioskInfo?.name ?? clientId;
+          const currentKiosk = kiosksState.getKiosk(clientId);
+          const kioskName = currentKiosk?.name ?? clientId;
+          // Only treat as "this socket's kiosk" if kiosk is still tied to this socket (not transferred on duplicate login)
+          const thisSocketOwnsKiosk = currentKiosk && currentKiosk.socketId === socket.id;
 
-          // Mark kiosk as offline
-          kiosksState.markOffline(clientId);
-
-          // End any active sessions for this kiosk
-          const endedSession = sessionsState.endSessionByKiosk(clientId);
-
-          // Notify monitors of kiosk going offline (include name for admin UI)
-          io.to('monitors').emit('kiosk-offline', {
-            kioskId: clientId,
-            name: kioskName,
-            timestamp: new Date().toISOString(),
-            reason: 'disconnect'
-          });
-          logInfo('Socket', 'Kiosk offline notification sent to monitors', {
-            clientId
-          });
-
-          // Notify monitors of session end if session existed
-          if (endedSession) {
-            io.to('monitors').emit('session-ended', {
-              kioskId: clientId,
-              monitorId: endedSession.monitorId,
-              reason: 'kiosk-disconnect',
-              timestamp: new Date().toISOString()
-            });
-            logInfo('Socket', 'Session ended notification sent (kiosk disconnect)', {
-              clientId,
-              monitorId: endedSession.monitorId,
-              kioskId: clientId
-            });
+          if (thisSocketOwnsKiosk) {
+            kiosksState.markOffline(clientId);
           }
 
-          // Remove kiosk from state
-          kiosksState.removeKiosk(clientId);
-          logInfo('Socket', 'Kiosk removed from state', {
-            clientId
-          });
+          // End any active sessions for this kiosk (only relevant when this socket owned the kiosk)
+          const endedSession = thisSocketOwnsKiosk ? sessionsState.endSessionByKiosk(clientId) : null;
+
+          if (thisSocketOwnsKiosk) {
+            // Notify monitors of kiosk going offline (include name for admin UI)
+            io.to('monitors').emit('kiosk-offline', {
+              kioskId: clientId,
+              name: kioskName,
+              timestamp: new Date().toISOString(),
+              reason: 'disconnect'
+            });
+            logInfo('Socket', 'Kiosk offline notification sent to monitors', {
+              clientId
+            });
+
+            // Notify monitors of session end if session existed
+            if (endedSession) {
+              io.to('monitors').emit('session-ended', {
+                kioskId: clientId,
+                monitorId: endedSession.monitorId,
+                reason: 'kiosk-disconnect',
+                timestamp: new Date().toISOString()
+              });
+              logInfo('Socket', 'Session ended notification sent (kiosk disconnect)', {
+                clientId,
+                monitorId: endedSession.monitorId,
+                kioskId: clientId
+              });
+            }
+
+            // Remove kiosk from state
+            kiosksState.removeKiosk(clientId);
+            logInfo('Socket', 'Kiosk removed from state', {
+              clientId
+            });
+          } else {
+            logInfo('Socket', 'Kiosk not removed (transferred to new socket or already removed)', {
+              clientId,
+              socketId: socket.id,
+              currentKioskSocketId: currentKiosk?.socketId ?? 'none'
+            });
+          }
 
         } else if (role === ROLES.MONITOR) {
           // End all active sessions owned by this monitor (one monitor can have multiple kiosk sessions)
