@@ -31,6 +31,7 @@ import {
 import * as kiosksState from '../state/kiosks.state.js';
 import * as monitorsState from '../state/monitors.state.js';
 import * as sessionsState from '../state/sessions.state.js';
+import * as userSessionsState from '../state/user-sessions.state.js';
 import {
   checkRateLimit,
   resetAllRateLimits
@@ -53,6 +54,25 @@ import {
  * @param {Object} io - Socket.IO server instance
  */
 export const initializeSocket = (io) => {
+  // Global error handler for unhandled errors
+  // This ensures all errors are logged and don't crash the server
+  process.on('unhandledRejection', (reason, promise) => {
+    logError('Server', 'Unhandled promise rejection', {
+      reason: reason?.message || String(reason),
+      stack: reason?.stack,
+      promise: String(promise)
+    });
+  });
+
+  process.on('uncaughtException', (error) => {
+    logError('Server', 'Uncaught exception', {
+      error: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    // Don't exit - let the server continue running
+  });
+
   // Start periodic heartbeat timeout checking
   startHeartbeatChecker(io);
 
@@ -108,6 +128,7 @@ export const initializeSocket = (io) => {
     const {
       role,
       clientId,
+      userId,
       user: appUser
     } = socket.data;
 
@@ -118,11 +139,52 @@ export const initializeSocket = (io) => {
       return appUser.role === 'USER';
     };
 
+    // Handle duplicate login: if user already has active session, disconnect old one
+    // NOTE: Multiple MONITOR connections are allowed (multiple admins can monitor simultaneously)
+    // Only KIOSK/USER connections enforce single session
+    if (userId && appUser && role === ROLES.KIOSK) {
+      const previousSocketId = userSessionsState.registerUserSession(userId, socket.id);
+      
+      if (previousSocketId && previousSocketId !== socket.id) {
+        const previousSocket = io.sockets.sockets.get(previousSocketId);
+        if (previousSocket) {
+          logInfo('Socket', 'Disconnecting previous session due to new login', {
+            userId,
+            previousSocketId,
+            newSocketId: socket.id,
+            clientId
+          });
+          
+          // Notify old socket that it's being logged out
+          previousSocket.emit('forced-logout', {
+            reason: 'duplicate-login',
+            message: 'You have been logged out because you logged in from another device/session',
+            timestamp: new Date().toISOString()
+          });
+          
+          // Clean up old session
+          kiosksState.removeKiosk(clientId);
+          io.to('monitors').emit('kiosk-offline', {
+            kioskId: clientId,
+            name: appUser.name ?? clientId,
+            timestamp: new Date().toISOString(),
+            reason: 'duplicate-login'
+          });
+          
+          // Disconnect old socket
+          previousSocket.disconnect(true);
+        }
+      }
+    }
+    // MONITOR role: Skip duplicate login handling - allow multiple monitor connections
+    // Monitors are tracked by socket.id in monitorsState, so multiple connections are supported
+
     logInfo('Socket', 'Client connected', {
       clientId,
       role,
       socketId: socket.id,
-      transport: socket.conn.transport.name
+      transport: socket.conn.transport.name,
+      userId: userId || 'none'
     });
 
     // Join role-specific room for targeted broadcasts
@@ -188,12 +250,17 @@ export const initializeSocket = (io) => {
         });
       } catch (error) {
         logError('Socket', 'Failed to register kiosk', {
-          clientId,
+          clientId: clientId || 'unknown',
+          userId: userId || null,
+          role: role || 'unknown',
           socketId: socket.id,
-          error: error.message
+          error: error.message,
+          stack: error.stack,
+          errorName: error.name
         });
         emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to register kiosk', {
-          error: error.message
+          error: error.message,
+          operation: 'register-kiosk'
         });
       }
     });
@@ -219,7 +286,8 @@ export const initializeSocket = (io) => {
 
       try {
         // Register monitor in state
-        const monitorData = monitorsState.registerMonitor(clientId, socket.id);
+        // Use socket.id as unique identifier to support multiple monitors with same credentials
+        const monitorData = monitorsState.registerMonitor(`${clientId}_${socket.id}`, socket.id);
 
         // Send list of online kiosks (include name for admin UI; fallback to kioskId for legacy)
         const onlineKiosks = kiosksState.getAllKiosks()
@@ -231,7 +299,7 @@ export const initializeSocket = (io) => {
           }));
 
         socket.emit('monitor-registered', {
-          monitorId: clientId,
+          monitorId: clientId, // Return clientId for compatibility, but store with socket.id
           onlineKiosks,
           timestamp: new Date().toISOString()
         });
@@ -244,12 +312,17 @@ export const initializeSocket = (io) => {
         });
       } catch (error) {
         logError('Socket', 'Failed to register monitor', {
-          clientId,
+          clientId: clientId || 'unknown',
+          userId: userId || null,
+          role: role || 'unknown',
           socketId: socket.id,
-          error: error.message
+          error: error.message,
+          stack: error.stack,
+          errorName: error.name
         });
         emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to register monitor', {
-          error: error.message
+          error: error.message,
+          operation: 'register-monitor'
         });
       }
     });
@@ -350,11 +423,19 @@ export const initializeSocket = (io) => {
         });
       } catch (error) {
         logError('Session', 'Failed to start monitoring session', {
-          monitorId: clientId,
+          monitorId: clientId || 'unknown',
+          userId: userId || null,
+          role: role || 'unknown',
+          socketId: socket.id,
           kioskId,
-          error: error.message
+          error: error.message,
+          stack: error.stack,
+          errorName: error.name
         });
-        emitError(socket, ERROR_CODES.SESSION_NOT_AUTHORIZED, error.message);
+        emitError(socket, ERROR_CODES.SESSION_NOT_AUTHORIZED, error.message, {
+          operation: 'start-monitoring',
+          kioskId
+        });
       }
     });
 
@@ -433,12 +514,19 @@ export const initializeSocket = (io) => {
         });
       } catch (error) {
         logError('Session', 'Failed to stop monitoring session', {
-          monitorId: clientId,
+          monitorId: clientId || 'unknown',
+          userId: userId || null,
+          role: role || 'unknown',
+          socketId: socket.id,
           kioskId,
-          error: error.message
+          error: error.message,
+          stack: error.stack,
+          errorName: error.name
         });
         emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to stop monitoring', {
-          error: error.message
+          error: error.message,
+          operation: 'stop-monitoring',
+          kioskId
         });
       }
     });
@@ -467,8 +555,11 @@ export const initializeSocket = (io) => {
       // Guard: Required fields
       if (!validateOrError(socket, targetId && offer, ERROR_CODES.SIGNALING_MISSING_DATA,
           'Invalid offer: targetId and offer are required')) {
-        logWarn('WebRTC', 'Offer failed: Missing required fields', {
-          clientId,
+        logError('WebRTC', 'Offer failed: Missing required fields', {
+          clientId: clientId || 'unknown',
+          userId: userId || null,
+          role: role || 'unknown',
+          socketId: socket.id,
           targetId: !!targetId,
           offer: !!offer
         });
@@ -493,17 +584,63 @@ export const initializeSocket = (io) => {
 
       // Determine sender and receiver roles
       const senderRole = role;
-      const targetKiosk = kiosksState.getKiosk(targetId);
-      const targetMonitor = monitorsState.getMonitor(targetId);
-
-      // Guard: Target must exist
-      if (!targetKiosk && !targetMonitor) {
-        emitError(socket, ERROR_CODES.SIGNALING_INVALID_TARGET, `Target client not found: ${targetId}`);
+      
+      // Determine kioskId for session validation
+      const kioskId = senderRole === ROLES.KIOSK ? clientId : targetId;
+      
+      // Guard: Active session must exist
+      if (!validateOrError(socket, sessionsState.hasActiveSession(kioskId),
+          ERROR_CODES.SIGNALING_NO_SESSION,
+          `No active monitoring session for kiosk ${kioskId}`)) {
         return;
       }
-
-      const targetRole = targetKiosk ? ROLES.KIOSK : ROLES.MONITOR;
-      const targetSocketId = targetKiosk ? targetKiosk.socketId : targetMonitor.socketId;
+      
+      // Get session to find the correct monitor/kiosk socket
+      const session = sessionsState.getSession(kioskId);
+      
+      // Determine target socket based on sender role
+      let targetSocketId;
+      let targetRole;
+      
+      if (senderRole === ROLES.KIOSK) {
+        // Kiosk sending to Monitor - use monitorSocketId from session
+        targetSocketId = session.monitorSocketId;
+        targetRole = ROLES.MONITOR;
+        
+        // Guard: Validate kiosk owns the session
+        if (!validateOrError(socket, session.kioskId === clientId,
+            ERROR_CODES.SIGNALING_UNAUTHORIZED_SENDER,
+            'Unauthorized: Invalid kiosk for this session')) {
+          return;
+        }
+      } else {
+        // Monitor sending to Kiosk - use kiosk socketId
+        const targetKiosk = kiosksState.getKiosk(targetId);
+        if (!targetKiosk) {
+          logError('WebRTC', 'Target kiosk not found for signaling', {
+            clientId: clientId || 'unknown',
+            userId: userId || null,
+            role: role || 'unknown',
+            socketId: socket.id,
+            targetId,
+            kioskId
+          });
+          emitError(socket, ERROR_CODES.SIGNALING_INVALID_TARGET, `Target kiosk not found: ${targetId}`, {
+            targetId,
+            kioskId
+          });
+          return;
+        }
+        targetSocketId = targetKiosk.socketId;
+        targetRole = ROLES.KIOSK;
+        
+        // Guard: Validate monitor owns the session
+        if (!validateOrError(socket, session.monitorSocketId === socket.id,
+            ERROR_CODES.SIGNALING_UNAUTHORIZED_SENDER,
+            'Unauthorized: You do not own the monitoring session for this kiosk')) {
+          return;
+        }
+      }
 
       // Guard: Must be KIOSK ↔ MONITOR pairing
       if (!validateOrError(socket,
@@ -512,34 +649,6 @@ export const initializeSocket = (io) => {
           ERROR_CODES.SIGNALING_INVALID_PAIRING,
           'Invalid pairing: Offers can only be sent between KIOSK and MONITOR')) {
         return;
-      }
-
-      // Determine kioskId for session validation
-      const kioskId = senderRole === ROLES.KIOSK ? clientId : targetId;
-
-      // Guard: Active session must exist
-      if (!validateOrError(socket, sessionsState.hasActiveSession(kioskId),
-          ERROR_CODES.SIGNALING_NO_SESSION,
-          `No active monitoring session for kiosk ${kioskId}`)) {
-        return;
-      }
-
-      // Guard: Validate session ownership
-      const session = sessionsState.getSession(kioskId);
-      if (senderRole === ROLES.MONITOR) {
-        // Monitor must own the session
-        if (!validateOrError(socket, session.monitorSocketId === socket.id,
-            ERROR_CODES.SIGNALING_UNAUTHORIZED_SENDER,
-            'Unauthorized: You do not own the monitoring session for this kiosk')) {
-          return;
-        }
-      } else {
-        // KIOSK must be the kiosk in the session
-        if (!validateOrError(socket, session.kioskId === clientId,
-            ERROR_CODES.SIGNALING_UNAUTHORIZED_SENDER,
-            'Unauthorized: Invalid kiosk for this session')) {
-          return;
-        }
       }
 
       // Update session activity
@@ -555,15 +664,31 @@ export const initializeSocket = (io) => {
         logInfo('WebRTC', 'Offer forwarded successfully', {
           fromId: clientId,
           toId: targetId,
-          kioskId
+          kioskId,
+          targetSocketId,
+          senderRole,
+          targetRole
         });
       } else {
-        logWarn('WebRTC', 'Offer failed: Target socket not found', {
-          clientId,
+        logError('WebRTC', 'Offer failed: Target socket not found', {
+          clientId: clientId || 'unknown',
+          userId: userId || null,
+          role: role || 'unknown',
+          socketId: socket.id,
           targetId,
+          targetSocketId,
+          kioskId,
+          sessionMonitorSocketId: session.monitorSocketId,
+          sessionKioskId: session.kioskId,
+          senderRole,
+          targetRole
+        });
+        emitError(socket, ERROR_CODES.SIGNALING_INVALID_TARGET, `Target socket not found: ${targetId}`, {
+          operation: 'offer',
+          targetId,
+          kioskId,
           targetSocketId
         });
-        emitError(socket, ERROR_CODES.SIGNALING_INVALID_TARGET, `Target socket not found: ${targetId}`);
       }
     });
 
@@ -591,8 +716,11 @@ export const initializeSocket = (io) => {
       // Guard: Required fields
       if (!validateOrError(socket, targetId && answer, ERROR_CODES.SIGNALING_MISSING_DATA,
           'Invalid answer: targetId and answer are required')) {
-        logWarn('WebRTC', 'Answer failed: Missing required fields', {
-          clientId,
+        logError('WebRTC', 'Answer failed: Missing required fields', {
+          clientId: clientId || 'unknown',
+          userId: userId || null,
+          role: role || 'unknown',
+          socketId: socket.id,
           targetId: !!targetId,
           answer: !!answer
         });
@@ -617,17 +745,63 @@ export const initializeSocket = (io) => {
 
       // Determine sender and receiver roles
       const senderRole = role;
-      const targetKiosk = kiosksState.getKiosk(targetId);
-      const targetMonitor = monitorsState.getMonitor(targetId);
-
-      // Guard: Target must exist
-      if (!targetKiosk && !targetMonitor) {
-        emitError(socket, ERROR_CODES.SIGNALING_INVALID_TARGET, `Target client not found: ${targetId}`);
+      
+      // Determine kioskId for session validation
+      const kioskId = senderRole === ROLES.KIOSK ? clientId : targetId;
+      
+      // Guard: Active session must exist
+      if (!validateOrError(socket, sessionsState.hasActiveSession(kioskId),
+          ERROR_CODES.SIGNALING_NO_SESSION,
+          `No active monitoring session for kiosk ${kioskId}`)) {
         return;
       }
-
-      const targetRole = targetKiosk ? ROLES.KIOSK : ROLES.MONITOR;
-      const targetSocketId = targetKiosk ? targetKiosk.socketId : targetMonitor.socketId;
+      
+      // Get session to find the correct monitor/kiosk socket
+      const session = sessionsState.getSession(kioskId);
+      
+      // Determine target socket based on sender role
+      let targetSocketId;
+      let targetRole;
+      
+      if (senderRole === ROLES.KIOSK) {
+        // Kiosk sending to Monitor - use monitorSocketId from session
+        targetSocketId = session.monitorSocketId;
+        targetRole = ROLES.MONITOR;
+        
+        // Guard: Validate kiosk owns the session
+        if (!validateOrError(socket, session.kioskId === clientId,
+            ERROR_CODES.SIGNALING_UNAUTHORIZED_SENDER,
+            'Unauthorized: Invalid kiosk for this session')) {
+          return;
+        }
+      } else {
+        // Monitor sending to Kiosk - use kiosk socketId
+        const targetKiosk = kiosksState.getKiosk(targetId);
+        if (!targetKiosk) {
+          logError('WebRTC', 'Target kiosk not found for signaling', {
+            clientId: clientId || 'unknown',
+            userId: userId || null,
+            role: role || 'unknown',
+            socketId: socket.id,
+            targetId,
+            kioskId
+          });
+          emitError(socket, ERROR_CODES.SIGNALING_INVALID_TARGET, `Target kiosk not found: ${targetId}`, {
+            targetId,
+            kioskId
+          });
+          return;
+        }
+        targetSocketId = targetKiosk.socketId;
+        targetRole = ROLES.KIOSK;
+        
+        // Guard: Validate monitor owns the session
+        if (!validateOrError(socket, session.monitorSocketId === socket.id,
+            ERROR_CODES.SIGNALING_UNAUTHORIZED_SENDER,
+            'Unauthorized: You do not own the monitoring session for this kiosk')) {
+          return;
+        }
+      }
 
       // Guard: Must be KIOSK ↔ MONITOR pairing
       if (!validateOrError(socket,
@@ -636,34 +810,6 @@ export const initializeSocket = (io) => {
           ERROR_CODES.SIGNALING_INVALID_PAIRING,
           'Invalid pairing: Answers can only be sent between KIOSK and MONITOR')) {
         return;
-      }
-
-      // Determine kioskId for session validation
-      const kioskId = senderRole === ROLES.KIOSK ? clientId : targetId;
-
-      // Guard: Active session must exist
-      if (!validateOrError(socket, sessionsState.hasActiveSession(kioskId),
-          ERROR_CODES.SIGNALING_NO_SESSION,
-          `No active monitoring session for kiosk ${kioskId}`)) {
-        return;
-      }
-
-      // Guard: Validate session ownership
-      const session = sessionsState.getSession(kioskId);
-      if (senderRole === ROLES.MONITOR) {
-        // Monitor must own the session
-        if (!validateOrError(socket, session.monitorSocketId === socket.id,
-            ERROR_CODES.SIGNALING_UNAUTHORIZED_SENDER,
-            'Unauthorized: You do not own the monitoring session for this kiosk')) {
-          return;
-        }
-      } else {
-        // KIOSK must be the kiosk in the session
-        if (!validateOrError(socket, session.kioskId === clientId,
-            ERROR_CODES.SIGNALING_UNAUTHORIZED_SENDER,
-            'Unauthorized: Invalid kiosk for this session')) {
-          return;
-        }
       }
 
       // Update session activity
@@ -682,12 +828,23 @@ export const initializeSocket = (io) => {
           kioskId
         });
       } else {
-        logWarn('WebRTC', 'Answer failed: Target socket not found', {
-          clientId,
+        logError('WebRTC', 'Answer failed: Target socket not found', {
+          clientId: clientId || 'unknown',
+          userId: userId || null,
+          role: role || 'unknown',
+          socketId: socket.id,
           targetId,
+          targetSocketId,
+          kioskId,
+          senderRole,
+          targetRole
+        });
+        emitError(socket, ERROR_CODES.SIGNALING_INVALID_TARGET, `Target socket not found: ${targetId}`, {
+          operation: 'answer',
+          targetId,
+          kioskId,
           targetSocketId
         });
-        emitError(socket, ERROR_CODES.SIGNALING_INVALID_TARGET, `Target socket not found: ${targetId}`);
       }
     });
 
@@ -715,8 +872,11 @@ export const initializeSocket = (io) => {
       // Guard: Required fields
       if (!validateOrError(socket, targetId && candidate, ERROR_CODES.SIGNALING_MISSING_DATA,
           'Invalid ice-candidate: targetId and candidate are required')) {
-        logWarn('WebRTC', 'ICE candidate failed: Missing required fields', {
-          clientId,
+        logError('WebRTC', 'ICE candidate failed: Missing required fields', {
+          clientId: clientId || 'unknown',
+          userId: userId || null,
+          role: role || 'unknown',
+          socketId: socket.id,
           targetId: !!targetId,
           candidate: !!candidate
         });
@@ -741,17 +901,63 @@ export const initializeSocket = (io) => {
 
       // Determine sender and receiver roles
       const senderRole = role;
-      const targetKiosk = kiosksState.getKiosk(targetId);
-      const targetMonitor = monitorsState.getMonitor(targetId);
-
-      // Guard: Target must exist
-      if (!targetKiosk && !targetMonitor) {
-        emitError(socket, ERROR_CODES.SIGNALING_INVALID_TARGET, `Target client not found: ${targetId}`);
+      
+      // Determine kioskId for session validation
+      const kioskId = senderRole === ROLES.KIOSK ? clientId : targetId;
+      
+      // Guard: Active session must exist
+      if (!validateOrError(socket, sessionsState.hasActiveSession(kioskId),
+          ERROR_CODES.SIGNALING_NO_SESSION,
+          `No active monitoring session for kiosk ${kioskId}`)) {
         return;
       }
-
-      const targetRole = targetKiosk ? ROLES.KIOSK : ROLES.MONITOR;
-      const targetSocketId = targetKiosk ? targetKiosk.socketId : targetMonitor.socketId;
+      
+      // Get session to find the correct monitor/kiosk socket
+      const session = sessionsState.getSession(kioskId);
+      
+      // Determine target socket based on sender role
+      let targetSocketId;
+      let targetRole;
+      
+      if (senderRole === ROLES.KIOSK) {
+        // Kiosk sending to Monitor - use monitorSocketId from session
+        targetSocketId = session.monitorSocketId;
+        targetRole = ROLES.MONITOR;
+        
+        // Guard: Validate kiosk owns the session
+        if (!validateOrError(socket, session.kioskId === clientId,
+            ERROR_CODES.SIGNALING_UNAUTHORIZED_SENDER,
+            'Unauthorized: Invalid kiosk for this session')) {
+          return;
+        }
+      } else {
+        // Monitor sending to Kiosk - use kiosk socketId
+        const targetKiosk = kiosksState.getKiosk(targetId);
+        if (!targetKiosk) {
+          logError('WebRTC', 'Target kiosk not found for signaling', {
+            clientId: clientId || 'unknown',
+            userId: userId || null,
+            role: role || 'unknown',
+            socketId: socket.id,
+            targetId,
+            kioskId
+          });
+          emitError(socket, ERROR_CODES.SIGNALING_INVALID_TARGET, `Target kiosk not found: ${targetId}`, {
+            targetId,
+            kioskId
+          });
+          return;
+        }
+        targetSocketId = targetKiosk.socketId;
+        targetRole = ROLES.KIOSK;
+        
+        // Guard: Validate monitor owns the session
+        if (!validateOrError(socket, session.monitorSocketId === socket.id,
+            ERROR_CODES.SIGNALING_UNAUTHORIZED_SENDER,
+            'Unauthorized: You do not own the monitoring session for this kiosk')) {
+          return;
+        }
+      }
 
       // Guard: Must be KIOSK ↔ MONITOR pairing
       if (!validateOrError(socket,
@@ -760,34 +966,6 @@ export const initializeSocket = (io) => {
           ERROR_CODES.SIGNALING_INVALID_PAIRING,
           'Invalid pairing: ICE candidates can only be sent between KIOSK and MONITOR')) {
         return;
-      }
-
-      // Determine kioskId for session validation
-      const kioskId = senderRole === ROLES.KIOSK ? clientId : targetId;
-
-      // Guard: Active session must exist
-      if (!validateOrError(socket, sessionsState.hasActiveSession(kioskId),
-          ERROR_CODES.SIGNALING_NO_SESSION,
-          `No active monitoring session for kiosk ${kioskId}`)) {
-        return;
-      }
-
-      // Guard: Validate session ownership
-      const session = sessionsState.getSession(kioskId);
-      if (senderRole === ROLES.MONITOR) {
-        // Monitor must own the session
-        if (!validateOrError(socket, session.monitorSocketId === socket.id,
-            ERROR_CODES.SIGNALING_UNAUTHORIZED_SENDER,
-            'Unauthorized: You do not own the monitoring session for this kiosk')) {
-          return;
-        }
-      } else {
-        // KIOSK must be the kiosk in the session
-        if (!validateOrError(socket, session.kioskId === clientId,
-            ERROR_CODES.SIGNALING_UNAUTHORIZED_SENDER,
-            'Unauthorized: Invalid kiosk for this session')) {
-          return;
-        }
       }
 
       // Update session activity
@@ -806,12 +984,23 @@ export const initializeSocket = (io) => {
           kioskId
         });
       } else {
-        logWarn('WebRTC', 'ICE candidate failed: Target socket not found', {
-          clientId,
+        logError('WebRTC', 'ICE candidate failed: Target socket not found', {
+          clientId: clientId || 'unknown',
+          userId: userId || null,
+          role: role || 'unknown',
+          socketId: socket.id,
           targetId,
+          targetSocketId,
+          kioskId,
+          senderRole,
+          targetRole
+        });
+        emitError(socket, ERROR_CODES.SIGNALING_INVALID_TARGET, `Target socket not found: ${targetId}`, {
+          operation: 'ice-candidate',
+          targetId,
+          kioskId,
           targetSocketId
         });
-        emitError(socket, ERROR_CODES.SIGNALING_INVALID_TARGET, `Target socket not found: ${targetId}`);
       }
     });
 
@@ -854,11 +1043,17 @@ export const initializeSocket = (io) => {
         }
       } catch (error) {
         logError('Heartbeat', 'Failed to process heartbeat', {
-          clientId,
-          error: error.message
+          clientId: clientId || 'unknown',
+          userId: userId || null,
+          role: role || 'unknown',
+          socketId: socket.id,
+          error: error.message,
+          stack: error.stack,
+          errorName: error.name
         });
         emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to process heartbeat', {
-          error: error.message
+          error: error.message,
+          operation: 'heartbeat-ping'
         });
       }
     });
@@ -1133,18 +1328,46 @@ export const initializeSocket = (io) => {
               kioskId: targetKioskId
             });
           } else {
-            emitError(socket, ERROR_CODES.SIGNALING_INVALID_TARGET, 'Target socket not found');
+            logError('Call', 'Target socket not found for call request', {
+              clientId: clientId || 'unknown',
+              userId: userId || null,
+              role: role || 'unknown',
+              socketId: socket.id,
+              targetKioskId,
+              targetSocketId: session?.monitorSocketId || 'unknown'
+            });
+            emitError(socket, ERROR_CODES.SIGNALING_INVALID_TARGET, 'Target socket not found', {
+              operation: 'call-request',
+              kioskId: targetKioskId
+            });
           }
         } else {
-          emitError(socket, ERROR_CODES.SIGNALING_INVALID_TARGET, 'Target not found');
+          logError('Call', 'Target not found for call request', {
+            clientId: clientId || 'unknown',
+            userId: userId || null,
+            role: role || 'unknown',
+            socketId: socket.id,
+            targetKioskId
+          });
+          emitError(socket, ERROR_CODES.SIGNALING_INVALID_TARGET, 'Target not found', {
+            operation: 'call-request',
+            kioskId: targetKioskId
+          });
         }
       } catch (error) {
         logError('Call', 'Failed to process call request', {
           clientId,
+          userId: userId || null,
+          role,
+          socketId: socket.id,
           kioskId: targetKioskId,
-          error: error.message
+          error: error.message,
+          stack: error.stack
         });
-        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to process call request');
+        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to process call request', {
+          error: error.message,
+          operation: 'call-request'
+        });
       }
     });
 
@@ -1229,11 +1452,20 @@ export const initializeSocket = (io) => {
         }
       } catch (error) {
         logError('Call', 'Failed to accept call', {
-          clientId,
+          clientId: clientId || 'unknown',
+          userId: userId || null,
+          role: role || 'unknown',
+          socketId: socket.id,
           kioskId: targetKioskId,
-          error: error.message
+          error: error.message,
+          stack: error.stack,
+          errorName: error.name
         });
-        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to accept call');
+        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to accept call', {
+          error: error.message,
+          operation: 'call-accept',
+          kioskId: targetKioskId
+        });
       }
     });
 
@@ -1308,11 +1540,20 @@ export const initializeSocket = (io) => {
         }
       } catch (error) {
         logError('Call', 'Failed to reject call', {
-          clientId,
+          clientId: clientId || 'unknown',
+          userId: userId || null,
+          role: role || 'unknown',
+          socketId: socket.id,
           kioskId: targetKioskId,
-          error: error.message
+          error: error.message,
+          stack: error.stack,
+          errorName: error.name
         });
-        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to reject call');
+        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to reject call', {
+          error: error.message,
+          operation: 'call-reject',
+          kioskId: targetKioskId
+        });
       }
     });
 
@@ -1392,11 +1633,20 @@ export const initializeSocket = (io) => {
         }, 1000);
       } catch (error) {
         logError('Call', 'Failed to end call', {
-          clientId,
+          clientId: clientId || 'unknown',
+          userId: userId || null,
+          role: role || 'unknown',
+          socketId: socket.id,
           kioskId: targetKioskId,
-          error: error.message
+          error: error.message,
+          stack: error.stack,
+          errorName: error.name
         });
-        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to end call');
+        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to end call', {
+          error: error.message,
+          operation: 'call-end',
+          kioskId: targetKioskId
+        });
       }
     });
 
@@ -1490,11 +1740,20 @@ export const initializeSocket = (io) => {
         }
       } catch (error) {
         logError('Media', 'Failed to toggle video', {
-          clientId,
+          clientId: clientId || 'unknown',
+          userId: userId || null,
+          role: role || 'unknown',
+          socketId: socket.id,
           kioskId: targetKioskId,
-          error: error.message
+          error: error.message,
+          stack: error.stack,
+          errorName: error.name
         });
-        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to toggle video');
+        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to toggle video', {
+          error: error.message,
+          operation: 'toggle-video',
+          kioskId: targetKioskId
+        });
       }
     });
 
@@ -1588,11 +1847,20 @@ export const initializeSocket = (io) => {
         }
       } catch (error) {
         logError('Media', 'Failed to toggle audio', {
-          clientId,
+          clientId: clientId || 'unknown',
+          userId: userId || null,
+          role: role || 'unknown',
+          socketId: socket.id,
           kioskId: targetKioskId,
-          error: error.message
+          error: error.message,
+          stack: error.stack,
+          errorName: error.name
         });
-        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to toggle audio');
+        emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Failed to toggle audio', {
+          error: error.message,
+          operation: 'toggle-audio',
+          kioskId: targetKioskId
+        });
       }
     });
 
@@ -1605,8 +1873,14 @@ export const initializeSocket = (io) => {
      * - Notify relevant clients
      * - Release all references
      * - Clean up rate limits
+     * - Clean up user session tracking
      */
     socket.on('disconnect', (reason) => {
+      // Clean up user session tracking
+      if (userId && appUser) {
+        userSessionsState.removeUserSession(userId, socket.id);
+      }
+
       logInfo('Socket', 'Client disconnected', {
         clientId,
         role,
@@ -1679,11 +1953,16 @@ export const initializeSocket = (io) => {
             });
           }
 
-          // Remove monitor from state
-          monitorsState.removeMonitor(clientId);
-          logInfo('Socket', 'Monitor removed from state', {
-            clientId
-          });
+          // Remove monitor from state (find by socket.id since monitorId = clientId_socketId)
+          const monitor = monitorsState.getMonitorBySocketId(socket.id);
+          if (monitor) {
+            monitorsState.removeMonitor(monitor.monitorId);
+            logInfo('Socket', 'Monitor removed from state', {
+              clientId,
+              monitorId: monitor.monitorId,
+              socketId: socket.id
+            });
+          }
         }
 
         // Clean up rate limits
@@ -1700,25 +1979,42 @@ export const initializeSocket = (io) => {
         logError('Socket', 'Error during disconnect cleanup', {
           clientId,
           role,
+          socketId: socket.id,
           error: error.message,
           stack: error.stack
         });
+        // Try to emit error to client if socket is still connected
+        if (socket.connected) {
+          emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Error during disconnect cleanup', {
+            error: error.message
+          });
+        }
       }
     });
 
     /**
      * Handle socket errors
      * Never crash the server
+     * Emit all errors to Flutter client
      */
     socket.on('error', (error) => {
       logError('Socket', 'Socket error occurred', {
-        clientId,
-        role,
+        clientId: clientId || 'unknown',
+        userId: userId || null,
+        role: role || 'unknown',
         socketId: socket.id,
         error: error.message,
-        stack: error.stack
+        stack: error.stack,
+        errorName: error.name,
+        errorCode: error.code
       });
-      // Log but don't crash - defensive coding
+      
+      // Emit error to Flutter client
+      emitError(socket, ERROR_CODES.INTERNAL_ERROR, 'Socket error occurred', {
+        error: error.message,
+        errorName: error.name,
+        errorCode: error.code
+      });
     });
   });
 };
