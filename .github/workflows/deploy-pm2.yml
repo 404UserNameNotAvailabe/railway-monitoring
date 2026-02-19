@@ -9,6 +9,7 @@ jobs:
   deploy-primary:
     name: Deploy to Primary
     runs-on: [self-hosted,shethia-farm]    # runner A label
+    timeout-minutes: 1                    # cancel if runner doesn't pick up within 1 min
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -40,7 +41,7 @@ jobs:
   deploy-fallback:
     name: Deploy to Fallback
     needs: deploy-primary
-    if: needs.deploy-primary.result == 'failure'
+    if: needs.deploy-primary.result == 'failure' || needs.deploy-primary.result == 'cancelled'
     runs-on: [self-hosted, railway]   # runner B label
     steps:
       - name: Checkout code
