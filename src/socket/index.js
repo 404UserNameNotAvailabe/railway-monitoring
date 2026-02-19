@@ -979,14 +979,22 @@ export const initializeSocket = (io) => {
       // Forward ICE candidate to target client
       const targetSocket = io.sockets.sockets.get(targetSocketId);
       if (targetSocket) {
+        // Log candidate type for debugging (host/srflx/relay)
+        const candidateStr = typeof candidate === 'string' ? candidate : JSON.stringify(candidate);
+        const candidateType = candidateStr.includes('typ relay') ? 'relay' :
+                             candidateStr.includes('typ srflx') ? 'srflx' :
+                             candidateStr.includes('typ host') ? 'host' : 'unknown';
+        
         targetSocket.emit('ice-candidate', {
           fromId: clientId,
           candidate
         });
-        logDebug('WebRTC', 'ICE candidate forwarded', {
+        logInfo('WebRTC', 'ICE candidate forwarded', {
           fromId: clientId,
           toId: targetId,
-          kioskId
+          kioskId,
+          candidateType,
+          hasRelay: candidateType === 'relay'
         });
       } else {
         logError('WebRTC', 'ICE candidate failed: Target socket not found', {
