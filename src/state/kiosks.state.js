@@ -17,14 +17,12 @@ const kiosks = new Map();
 
 /**
  * Register a kiosk
- *
+ * 
  * @param {string} kioskId - Unique kiosk identifier
  * @param {string} socketId - Socket.IO socket ID
- * @param {string|null} [userId] - Optional DB user id for session binding
- * @param {string|null} [name] - Optional display name for admin UI
  * @returns {Object} Registered kiosk data
  */
-export const registerKiosk = (kioskId, socketId, userId = null, name = null) => {
+export const registerKiosk = (kioskId, socketId) => {
   if (!kioskId || !socketId) {
     throw new Error('kioskId and socketId are required');
   }
@@ -32,8 +30,6 @@ export const registerKiosk = (kioskId, socketId, userId = null, name = null) => 
   const kioskData = {
     kioskId,
     socketId,
-    userId: userId ?? null,
-    name: name ?? null,
     registeredAt: new Date(),
     lastSeenAt: new Date(),
     status: 'online'
@@ -48,37 +44,6 @@ export const registerKiosk = (kioskId, socketId, userId = null, name = null) => 
   });
   
   return { ...kioskData };
-};
-
-/**
- * Update kiosk's socket ID (e.g. on duplicate login - transfer to new socket)
- *
- * @param {string} kioskId - Kiosk identifier
- * @param {string} newSocketId - New Socket.IO socket ID
- * @returns {boolean} True if updated, false if kiosk not found
- */
-export const updateKioskSocketId = (kioskId, newSocketId) => {
-  if (!kioskId || !newSocketId) {
-    return false;
-  }
-
-  const kiosk = kiosks.get(kioskId);
-  if (!kiosk) {
-    return false;
-  }
-
-  const oldSocketId = kiosk.socketId;
-  kiosk.socketId = newSocketId;
-  kiosk.lastSeenAt = new Date();
-  kiosk.status = 'online';
-
-  logInfo('State', 'Kiosk socket updated (e.g. duplicate login)', {
-    kioskId,
-    oldSocketId,
-    newSocketId
-  });
-
-  return true;
 };
 
 /**

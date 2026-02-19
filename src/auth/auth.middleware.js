@@ -40,29 +40,7 @@ export const authenticateSocket = (socket, next) => {
     // Verify JWT token
     const decoded = jwt.verify(token, JWT_SECRET);
 
-    // Application JWT: userId + role ADMIN | USER → map to socket MONITOR | KIOSK (do not rename events)
-    if (decoded.userId && (decoded.role === 'ADMIN' || decoded.role === 'USER')) {
-      const socketRole = decoded.role === 'ADMIN' ? ROLES.MONITOR : ROLES.KIOSK;
-      const clientId = decoded.user_id || decoded.userId;
-      socket.data.role = socketRole;
-      socket.data.clientId = String(clientId);
-      socket.data.userId = decoded.userId;
-      socket.data.user = {
-        userId: decoded.userId,
-        role: decoded.role,
-        name: decoded.name ?? null,
-      };
-      logInfo('Auth', 'Client authenticated (app JWT)', {
-        clientId: socket.data.clientId,
-        appRole: decoded.role,
-        socketRole,
-        socketId: socket.id,
-        ip: socket.handshake.address
-      });
-      return next();
-    }
-
-    // Legacy JWT: clientId + role KIOSK | MONITOR
+    // Validate role
     if (!decoded.role || (decoded.role !== ROLES.KIOSK && decoded.role !== ROLES.MONITOR)) {
       logWarn('Auth', 'Authentication failed: Invalid role', { 
         socketId: socket.id,
@@ -71,6 +49,8 @@ export const authenticateSocket = (socket, next) => {
       });
       return next(new Error('Authentication error: Invalid role'));
     }
+
+    // Validate clientId
     if (!decoded.clientId) {
       logWarn('Auth', 'Authentication failed: Missing clientId', { 
         socketId: socket.id,
@@ -79,12 +59,12 @@ export const authenticateSocket = (socket, next) => {
       return next(new Error('Authentication error: Missing clientId'));
     }
 
+    // Attach authentication data to socket context
     socket.data.role = decoded.role;
     socket.data.clientId = decoded.clientId;
     socket.data.userId = decoded.userId || decoded.clientId;
-    socket.data.user = null;
 
-    logInfo('Auth', 'Client authenticated (legacy JWT)', {
+    logInfo('Auth', 'Client authenticated successfully', {
       clientId: decoded.clientId,
       role: decoded.role,
       socketId: socket.id,

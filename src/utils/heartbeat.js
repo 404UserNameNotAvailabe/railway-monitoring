@@ -12,7 +12,7 @@
 
 import { logInfo, logWarn, logDebug } from './logger.js';
 
-import { getKiosk, markOffline as markKioskOffline, isKioskOnline } from '../state/kiosks.state.js';
+import { markOffline as markKioskOffline, isKioskOnline } from '../state/kiosks.state.js';
 import { endSessionByKiosk } from '../state/sessions.state.js';
 
 // Heartbeat configuration (in milliseconds)
@@ -58,17 +58,14 @@ export const checkHeartbeatTimeouts = (io) => {
     if (timeSinceLastHeartbeat > HEARTBEAT_TIMEOUT_MS) {
       // Only mark offline if currently online (avoid duplicate notifications)
       if (isKioskOnline(kioskId)) {
-        const kioskInfo = getKiosk(kioskId);
-        const kioskName = kioskInfo?.name ?? kioskId;
         markKioskOffline(kioskId);
         
         // End any active sessions for this kiosk
         const endedSession = endSessionByKiosk(kioskId);
         
-        // Notify monitors (include name for admin UI)
+        // Notify monitors
         io.to('monitors').emit('kiosk-offline', {
           kioskId,
-          name: kioskName,
           timestamp: new Date().toISOString(),
           reason: 'heartbeat-timeout'
         });

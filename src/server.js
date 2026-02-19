@@ -1,32 +1,14 @@
-import 'dotenv/config';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
-import sequelize from './config/sequelize.js';
-import { swaggerUiHandler, swaggerUiSetup } from './config/swagger.js';
 import { authenticateSocket } from './auth/auth.middleware.js';
 import { initializeSocket } from './socket/index.js';
-import { seedAdmin } from './bootstrap/seedAdmin.js';
 import { logInfo, logWarn, logError } from './utils/logger.js';
 import authRoutes from './auth/auth.routes.js';
-import usersRoutes from './modules/users/users.routes.js';
 
 const app = express();
 const server = createServer(app);
-
-async function initDB() {
-  try {
-    await sequelize.authenticate();
-    logInfo('DB', 'Sequelize authenticated');
-    await sequelize.sync({ alter: true });
-    logInfo('DB', 'Sequelize synced');
-    await seedAdmin();
-  } catch (err) {
-    logError('DB', 'Init failed', { error: err.message });
-    throw err;
-  }
-}
 
 // Configure CORS for Express
 app.use(cors({
@@ -46,16 +28,10 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Swagger UI
-app.use('/api-docs', swaggerUiHandler, swaggerUiSetup);
-logInfo('Server', 'Swagger UI at /api-docs');
-
-// Authentication API routes (application login + legacy)
+// Authentication API routes
 app.use('/api/auth', authRoutes);
-app.use('/api/users', usersRoutes);
-logInfo('Server', 'Auth and user routes registered', {
-  auth: ['/api/auth/login', '/api/auth/device-token', '/api/auth/register', '/api/auth/users'],
-  users: ['/api/users', '/api/users/me', '/api/users/:id/deactivate']
+logInfo('Server', 'Authentication routes registered', { 
+  endpoints: ['/api/auth/login', '/api/auth/device-token', '/api/auth/register', '/api/auth/users'] 
 });
 
 /**
@@ -90,9 +66,7 @@ logInfo('Server', 'Socket event handlers initialized');
 
 const PORT = process.env.PORT || 3000;
 
-initDB()
-  .then(() => {
-    server.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║   KIOSK-MONITOR Signaling Server (Hardened)               ║
@@ -112,18 +86,12 @@ initDB()
 ║   • Clean disconnect handling                            ║
 ╚═══════════════════════════════════════════════════════════╝
   `);
-  logInfo('Server', 'Server started successfully', {
-    port: PORT,
+  logInfo('Server', 'Server started successfully', { 
+    port: PORT, 
     corsOrigin: process.env.CORS_ORIGIN || '*',
-    healthCheck: `http://localhost:${PORT}/health`,
-    apiDocs: `http://localhost:${PORT}/api-docs`
+    healthCheck: `http://localhost:${PORT}/health`
   });
-    });
-  })
-  .catch((err) => {
-    logError('Server', 'Startup failed', { error: err.message });
-    process.exit(1);
-  });
+});
 
 // Graceful shutdown
 process.on('SIGTERM', () => {

@@ -102,34 +102,6 @@ export const getMonitorBySocketId = (socketId) => {
 };
 
 /**
- * Get monitor by clientId (searches by prefix since monitorId = clientId_socketId)
- * Returns the first matching monitor if multiple exist
- * 
- * @param {string} clientId - Client identifier (e.g., 'admin')
- * @returns {Object|null} Monitor data or null if not found
- */
-export const getMonitorByClientId = (clientId) => {
-  if (!clientId) {
-    return null;
-  }
-
-  // First try exact match (for backward compatibility)
-  const exactMatch = monitors.get(clientId);
-  if (exactMatch) {
-    return { ...exactMatch };
-  }
-
-  // Search by prefix (monitorId = clientId_socketId)
-  for (const monitor of monitors.values()) {
-    if (monitor.monitorId.startsWith(`${clientId}_`)) {
-      return { ...monitor };
-    }
-  }
-
-  return null;
-};
-
-/**
  * Get all online monitors
  * 
  * @returns {Array} Array of monitor data objects
