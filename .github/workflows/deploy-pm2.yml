@@ -6,10 +6,32 @@ on:
       - main
 
 jobs:
+  check-primary-runner:
+    name: Check Primary Runner Availability
+    runs-on: ubuntu-latest          # GitHub-hosted, always available
+    outputs:
+      available: ${{ steps.check.outputs.available }}
+    steps:
+      - name: Check if shethia-farm runner is online
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          STATUS=$(gh api repos/${{ github.repository }}/actions/runners \
+            --jq '[.runners[] | select(.labels[].name == "shethia-farm")] | .[0].status // "offline"')
+          echo "Runner status: $STATUS"
+          if [ "$STATUS" = "online" ]; then
+            echo "available=true" >> $GITHUB_OUTPUT
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+          fi
+
   deploy-primary:
     name: Deploy to Primary
-    runs-on: [self-hosted,shethia-farm]    # runner A label
-    timeout-minutes: 1                    # cancel if runner doesn't pick up within 1 min
+    needs: check-primary-runner
+    if: needs.check-primary-runner.outputs.available == 'true'
+    runs-on: [self-hosted, shethia-farm]    # runner A label
+    timeout-minutes: 15                     # guard against hung steps after pickup
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -29,7 +51,7 @@ jobs:
       - name: Sync to production directory
         run: |
           sudo rsync -a --delete ./ /opt/railway-monitoring/
-      
+
       - name: Restart PM2 service
         run: |
           pm2 restart railway-monitoring --update-env || \
@@ -40,8 +62,13 @@ jobs:
 
   deploy-fallback:
     name: Deploy to Fallback
-    needs: deploy-primary
-    if: needs.deploy-primary.result == 'failure' || needs.deploy-primary.result == 'cancelled'
+    needs: [check-primary-runner, deploy-primary]
+    if: |
+      always() && (
+        needs.check-primary-runner.outputs.available != 'true' ||
+        needs.deploy-primary.result == 'failure' ||
+        needs.deploy-primary.result == 'cancelled'
+      )
     runs-on: [self-hosted, railway]   # runner B label
     steps:
       - name: Checkout code
@@ -57,12 +84,12 @@ jobs:
       - name: Install deps & build
         run: |
           npm ci
-        working-directory: ./ 
+        working-directory: ./
 
       - name: Sync to production directory
         run: |
           sudo rsync -a --delete ./ /opt/railway-monitoring/
-      
+
       - name: Restart PM2 service
         run: |
           pm2 restart railway-monitoring --update-env || \
