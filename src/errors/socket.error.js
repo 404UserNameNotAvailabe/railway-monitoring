@@ -17,12 +17,25 @@ import { logError, logWarn } from '../utils/logger.js';
  * @returns {Object} Structured error object
  */
 export const createError = (code, message, details = {}) => {
-  return {
-    code,
-    message,
+  // Ensure code and message are always strings (never null/undefined)
+  const errorObj = {
+    code: String(code || 'UNKNOWN_ERROR'),
+    message: String(message || 'An error occurred'),
     timestamp: new Date().toISOString(),
-    ...details
   };
+  
+  // Safely merge details (ensure no null values break the structure)
+  if (details && typeof details === 'object') {
+    Object.keys(details).forEach(key => {
+      const value = details[key];
+      // Only include non-null, non-undefined values
+      if (value !== null && value !== undefined) {
+        errorObj[key] = value;
+      }
+    });
+  }
+  
+  return errorObj;
 };
 
 /**
@@ -36,17 +49,20 @@ export const createError = (code, message, details = {}) => {
 export const emitError = (socket, code, message, details = {}) => {
   const error = createError(code, message, details);
   
-  // Log error for debugging
-  logError('Error', 'Socket error emitted', {
+  // Enhanced logging with full context for debugging
+  logError('Error', 'Socket error emitted to Flutter client', {
     code,
     message,
-    clientId: socket.data?.clientId,
-    role: socket.data?.role,
+    clientId: socket.data?.clientId || 'unknown',
+    userId: socket.data?.userId || null,
+    role: socket.data?.role || 'unknown',
     socketId: socket.id,
+    timestamp: error.timestamp,
     ...details
   });
   
-  // Emit error to client
+  // Emit error to Flutter client
+  // Flutter apps should listen for 'error' event on socket
   socket.emit('error', error);
   
   return error;
@@ -59,10 +75,22 @@ export const emitError = (socket, code, message, details = {}) => {
  * @param {boolean} isValid - Whether validation passed
  * @param {string} code - Error code if validation fails
  * @param {string} message - Error message if validation fails
+ * @param {Object} details - Optional additional error details
  * @returns {boolean} True if valid, false if error was emitted
  */
 export const validateOrError = (socket, isValid, code, message, details = {}) => {
   if (!isValid) {
+    // Enhanced logging for validation failures
+    logWarn('Validation', 'Validation failed', {
+      code,
+      message,
+      clientId: socket.data?.clientId || 'unknown',
+      userId: socket.data?.userId || null,
+      role: socket.data?.role || 'unknown',
+      socketId: socket.id,
+      ...details
+    });
+    
     emitError(socket, code, message, details);
     return false;
   }

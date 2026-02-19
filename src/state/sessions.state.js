@@ -17,7 +17,10 @@
  * - Sessions track activity for timeout detection.
  */
 
-import { logInfo, logWarn, logDebug } from '../utils/logger.js';
+import {
+  logInfo,
+  logDebug
+} from '../utils/logger.js';
 
 // In-memory storage: Map<kioskId, sessionData>
 const sessions = new Map();
@@ -27,19 +30,19 @@ let SESSION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes default
 
 /**
  * Create a new monitoring session
- * 
+ *
  * @param {string} kioskId - Kiosk identifier being monitored
  * @param {string} monitorId - Monitor identifier
  * @param {string} monitorSocketId - Monitor's socket ID
+ * @param {string|null} [kioskUserId] - Optional DB user id of the kiosk (for session binding)
  * @returns {Object} Created session data
  * @throws {Error} If session already exists for this kiosk
  */
-export const createSession = (kioskId, monitorId, monitorSocketId) => {
+export const createSession = (kioskId, monitorId, monitorSocketId, kioskUserId = null) => {
   if (!kioskId || !monitorId || !monitorSocketId) {
     throw new Error('kioskId, monitorId, and monitorSocketId are required');
   }
 
-  // Check if session already exists for this kiosk
   if (sessions.has(kioskId)) {
     throw new Error(`Session already exists for kiosk: ${kioskId}`);
   }
@@ -48,21 +51,39 @@ export const createSession = (kioskId, monitorId, monitorSocketId) => {
     kioskId,
     monitorId,
     monitorSocketId,
+    userId: kioskUserId ?? null,
     startedAt: new Date(),
     lastActivityAt: new Date(),
-    status: 'active'
+    status: 'active',
+    // Call state for bidirectional communication
+    callState: 'idle', // 'idle' | 'connecting' | 'connected' | 'ended'
+    callInitiatedBy: null, // 'monitor' | 'kiosk' | null
+    callStartedAt: null,
+    // Media control states
+    mediaState: {
+      kiosk: {
+        videoEnabled: false,
+        audioEnabled: false
+      },
+      monitor: {
+        videoEnabled: false,
+        audioEnabled: false
+      }
+    }
   };
 
   sessions.set(kioskId, sessionData);
-  
+
   logInfo('State', 'Session created', {
     kioskId,
     monitorId,
     monitorSocketId,
     startedAt: sessionData.startedAt
   });
-  
-  return { ...sessionData };
+
+  return {
+    ...sessionData
+  };
 };
 
 /**
@@ -88,14 +109,14 @@ export const endSession = (kioskId) => {
   };
 
   sessions.delete(kioskId);
-  
+
   logInfo('State', 'Session ended', {
     kioskId,
     monitorId: endedSession.monitorId,
     startedAt: endedSession.startedAt,
     endedAt: endedSession.endedAt
   });
-  
+
   return endedSession;
 };
 
@@ -151,7 +172,9 @@ export const getSession = (kioskId) => {
   }
 
   const session = sessions.get(kioskId);
-  return session ? { ...session } : null;
+  return session ? {
+    ...session
+  } : null;
 };
 
 /**
@@ -167,7 +190,9 @@ export const getSessionByMonitorSocket = (monitorSocketId) => {
 
   for (const session of sessions.values()) {
     if (session.monitorSocketId === monitorSocketId) {
-      return { ...session };
+      return {
+        ...session
+      };
     }
   }
 
@@ -191,12 +216,12 @@ export const updateSessionActivity = (kioskId) => {
   }
 
   session.lastActivityAt = new Date();
-  
+
   logDebug('State', 'Session activity updated', {
     kioskId,
     lastActivityAt: session.lastActivityAt
   });
-  
+
   return true;
 };
 
@@ -212,7 +237,7 @@ export const hasActiveSession = (kioskId) => {
   }
 
   const session = sessions.get(kioskId);
-  return session && session.status === 'active';
+  return session?.status === 'active';
 };
 
 /**
@@ -228,7 +253,7 @@ export const validateSessionOwnership = (kioskId, monitorSocketId) => {
   }
 
   const session = sessions.get(kioskId);
-  if (!session || session.status !== 'active') {
+  if (session?.status !== 'active') {
     return false;
   }
 
@@ -243,7 +268,9 @@ export const validateSessionOwnership = (kioskId, monitorSocketId) => {
 export const getAllActiveSessions = () => {
   return Array.from(sessions.values())
     .filter(session => session.status === 'active')
-    .map(session => ({ ...session }));
+    .map(session => ({
+      ...session
+    }));
 };
 
 /**
@@ -263,7 +290,10 @@ export const getTimedOutSessions = (timeoutMs = SESSION_TIMEOUT_MS) => {
 
     const inactivityMs = now - session.lastActivityAt.getTime();
     if (inactivityMs > timeoutMs) {
-      timedOut.push({ ...session, kioskId });
+      timedOut.push({
+        ...session,
+        kioskId
+      });
     }
   }
 
@@ -279,4 +309,112 @@ export const setSessionTimeout = (timeoutMs) => {
   if (timeoutMs > 0) {
     SESSION_TIMEOUT_MS = timeoutMs;
   }
+};
+
+/**
+ * Update call state for a session
+ * 
+ * @param {string} kioskId - Kiosk identifier
+ * @param {string} callState - New call state ('idle' | 'connecting' | 'connected' | 'ended')
+ * @param {string} initiatedBy - Who initiated the call ('monitor' | 'kiosk' | null)
+ * @returns {boolean} True if updated, false if session not found
+ */
+export const updateCallState = (kioskId, callState, initiatedBy = null) => {
+  if (!kioskId || !callState) {
+    return false;
+  }
+
+  const session = sessions.get(kioskId);
+  if (!session) {
+    return false;
+  }
+
+  session.callState = callState;
+  if (initiatedBy) {
+    session.callInitiatedBy = initiatedBy;
+  }
+  if (callState === 'connected' && !session.callStartedAt) {
+    session.callStartedAt = new Date();
+  }
+  if (callState === 'ended' || callState === 'idle') {
+    session.callStartedAt = null;
+    session.callInitiatedBy = null;
+  }
+
+  logDebug('State', 'Call state updated', {
+    kioskId,
+    callState,
+    initiatedBy
+  });
+
+  return true;
+};
+
+/**
+ * Update media state for a session
+ * 
+ * @param {string} kioskId - Kiosk identifier
+ * @param {string} role - Role of the client ('kiosk' | 'monitor')
+ * @param {Object} mediaState - Media state { videoEnabled: boolean, audioEnabled: boolean }
+ * @returns {boolean} True if updated, false if session not found
+ */
+export const updateMediaState = (kioskId, role, mediaState) => {
+  if (!kioskId || !role || !mediaState) {
+    return false;
+  }
+
+  const session = sessions.get(kioskId);
+  if (!session) {
+    return false;
+  }
+
+  if (role === 'kiosk') {
+    if (mediaState.videoEnabled !== undefined) {
+      session.mediaState.kiosk.videoEnabled = mediaState.videoEnabled;
+    }
+    if (mediaState.audioEnabled !== undefined) {
+      session.mediaState.kiosk.audioEnabled = mediaState.audioEnabled;
+    }
+  } else if (role === 'monitor') {
+    if (mediaState.videoEnabled !== undefined) {
+      session.mediaState.monitor.videoEnabled = mediaState.videoEnabled;
+    }
+    if (mediaState.audioEnabled !== undefined) {
+      session.mediaState.monitor.audioEnabled = mediaState.audioEnabled;
+    }
+  }
+
+  logDebug('State', 'Media state updated', {
+    kioskId,
+    role,
+    mediaState
+  });
+
+  return true;
+};
+
+/**
+ * Get call state for a session
+ * 
+ * @param {string} kioskId - Kiosk identifier
+ * @returns {Object|null} Call state info or null if session not found
+ */
+export const getCallState = (kioskId) => {
+  if (!kioskId) {
+    return null;
+  }
+
+  const session = sessions.get(kioskId);
+  if (!session) {
+    return null;
+  }
+
+  return {
+    callState: session.callState,
+    callInitiatedBy: session.callInitiatedBy,
+    callStartedAt: session.callStartedAt,
+    mediaState: {
+      ...session.mediaState
+    }
+  };
 };
