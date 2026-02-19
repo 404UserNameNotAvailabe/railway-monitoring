@@ -6,11 +6,13 @@ on:
       - main
 
 jobs:
-  deploy:
-    name: Deploy to Self-Hosted Server
-    runs-on: self-hosted
-
+  deploy-primary:
+    name: Deploy to Primary
+    runs-on: [self-hosted,shethia-farm]    # runner A label
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Runner debug info
         run: |
           whoami
@@ -18,24 +20,52 @@ jobs:
           node -v
           npm -v
 
-      - name: Update source repository
-        working-directory: /home/github-runner/railway-monitoring
+      - name: Install deps & build
         run: |
-            git fetch origin main
-            git reset --hard origin/main
-            npm install
+          npm ci
+        working-directory: ./   # repo workspace
 
       - name: Sync to production directory
         run: |
-          sudo rsync -a --delete \
-            /home/github-runner/railway-monitoring/ \
-            /opt/railway-monitoring/
-
+          sudo rsync -a --delete ./ /opt/railway-monitoring/
+      
       - name: Restart PM2 service
         run: |
           pm2 restart railway-monitoring --update-env || \
           pm2 start /opt/railway-monitoring/src/server.js --name railway-monitoring
 
       - name: Verify PM2 status
+        run: sudo pm2 status
+
+  deploy-fallback:
+    name: Deploy to Fallback
+    needs: deploy-primary
+    if: needs.deploy-primary.result == 'failure'
+    runs-on: [self-hosted, railway]   # runner B label
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Runner debug info
         run: |
-          sudo pm2 status
+          whoami
+          hostname
+          node -v
+          npm -v
+
+      - name: Install deps & build
+        run: |
+          npm ci
+        working-directory: ./ 
+
+      - name: Sync to production directory
+        run: |
+          sudo rsync -a --delete ./ /opt/railway-monitoring/
+      
+      - name: Restart PM2 service
+        run: |
+          pm2 restart railway-monitoring --update-env || \
+          pm2 start /opt/railway-monitoring/src/server.js --name railway-monitoring
+
+      - name: Verify PM2 status
+        run: sudo pm2 status
