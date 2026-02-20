@@ -6,43 +6,10 @@ on:
       - main
 
 jobs:
-  check-runners:
-    name: Check Runner Availability
-    runs-on: ubuntu-latest          # GitHub-hosted, always available
-    outputs:
-      primary-available: ${{ steps.check.outputs.primary }}
-      fallback-available: ${{ steps.check.outputs.fallback }}
-    steps:
-      - name: Check which runners are online
-        id: check
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          RUNNERS=$(gh api repos/${{ github.repository }}/actions/runners --jq '.runners')
-          echo "All runners:"
-          echo "$RUNNERS" | jq -r '.[] | "\(.name) | labels: \([.labels[].name] | join(",")) | status: \(.status)"'
-
-          PRIMARY=$(echo "$RUNNERS" | jq -r '[.[] | select(.labels[].name == "shethia-farm")] | .[0].status // "offline"')
-          FALLBACK=$(echo "$RUNNERS" | jq -r '[.[] | select(.labels[].name == "railway")] | .[0].status // "offline"')
-
-          echo "Primary (shethia-farm) status: $PRIMARY"
-          echo "Fallback (railway) status:     $FALLBACK"
-
-          [ "$PRIMARY" = "online" ] && echo "primary=true" >> $GITHUB_OUTPUT || echo "primary=false" >> $GITHUB_OUTPUT
-          [ "$FALLBACK" = "online" ] && echo "fallback=true" >> $GITHUB_OUTPUT || echo "fallback=false" >> $GITHUB_OUTPUT
-
-      - name: Fail if no runners are available
-        if: steps.check.outputs.primary != 'true' && steps.check.outputs.fallback != 'true'
-        run: |
-          echo "::error::Neither the primary (shethia-farm) nor the fallback (railway) runner is online. Deployment aborted."
-          exit 1
-
-  deploy-primary:
-    name: Deploy to Primary
-    needs: check-runners
-    if: needs.check-runners.outputs.primary-available == 'true'
-    runs-on: [self-hosted, shethia-farm]    # runner A label
-    timeout-minutes: 15                     # guard against hung steps after pickup
+  deploy:
+    name: Deploy
+    runs-on: [self-hosted, railway]
+    timeout-minutes: 1
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -54,53 +21,11 @@ jobs:
           node -v
           npm -v
 
-      - name: Install deps & build
-        run: |
-          npm ci
-        working-directory: ./   # repo workspace
+      - name: Install deps
+        run: npm ci
 
       - name: Sync to production directory
-        run: |
-          sudo rsync -a --delete ./ /opt/railway-monitoring/
-
-      - name: Restart PM2 service
-        run: |
-          pm2 restart railway-monitoring --update-env || \
-          pm2 start /opt/railway-monitoring/src/server.js --name railway-monitoring
-
-      - name: Verify PM2 status
-        run: sudo pm2 status
-
-  deploy-fallback:
-    name: Deploy to Fallback
-    needs: [check-runners, deploy-primary]
-    if: |
-      always() &&
-      needs.check-runners.outputs.fallback-available == 'true' && (
-        needs.check-runners.outputs.primary-available != 'true' ||
-        needs.deploy-primary.result == 'failure' ||
-        needs.deploy-primary.result == 'cancelled'
-      )
-    runs-on: [self-hosted, railway]   # runner B label
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Runner debug info
-        run: |
-          whoami
-          hostname
-          node -v
-          npm -v
-
-      - name: Install deps & build
-        run: |
-          npm ci
-        working-directory: ./
-
-      - name: Sync to production directory
-        run: |
-          sudo rsync -a --delete ./ /opt/railway-monitoring/
+        run: sudo rsync -a --delete ./ /opt/railway-monitoring/
 
       - name: Restart PM2 service
         run: |
