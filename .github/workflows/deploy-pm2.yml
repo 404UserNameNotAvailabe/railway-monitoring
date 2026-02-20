@@ -17,14 +17,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Runner debug info
-        run: |
-          whoami
-          hostname
-          which node || echo "node not in PATH"
-          node -v
-          npm -v
-
       - name: Install deps
         run: npm ci
 
