@@ -10,9 +10,6 @@ jobs:
     name: Deploy
     runs-on: [self-hosted, railway]
     timeout-minutes: 15
-    defaults:
-      run:
-        shell: bash -l {0}     # login shell — sources ~/.bash_profile, ~/.nvm/nvm.sh etc.
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
