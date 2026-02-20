@@ -12,25 +12,15 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - name: Runner debug info
-        run: |
-          whoami
-          hostname
-          node -v
-          npm -v
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - name: Update source repository
-        working-directory: /home/github-runner/railway-monitoring
-        run: |
-          git fetch origin main
-          git reset --hard origin/main
-          npm install
+      - name: Install deps
+        run: npm ci
 
-      - name: Sync to production directory
+      - name: Copy to production directory
         run: |
-          sudo rsync -a --delete \
-            /home/github-runner/railway-monitoring/ \
-            /opt/railway-monitoring/
+          sudo cp -r $GITHUB_WORKSPACE/. /opt/railway-monitoring/
 
       - name: Restart PM2 service
         run: |
