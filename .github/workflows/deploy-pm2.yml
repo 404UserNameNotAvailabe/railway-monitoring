@@ -28,4 +28,4 @@ jobs:
           pm2 start /opt/railway-monitoring/src/server.js --name railway-monitoring
 
       - name: Verify PM2 status
-        run: sudo pm2 status
+        run: pm2 status
