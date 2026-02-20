@@ -6,30 +6,41 @@ on:
       - main
 
 jobs:
-  check-primary-runner:
-    name: Check Primary Runner Availability
+  check-runners:
+    name: Check Runner Availability
     runs-on: ubuntu-latest          # GitHub-hosted, always available
     outputs:
-      available: ${{ steps.check.outputs.available }}
+      primary-available: ${{ steps.check.outputs.primary }}
+      fallback-available: ${{ steps.check.outputs.fallback }}
     steps:
-      - name: Check if shethia-farm runner is online
+      - name: Check which runners are online
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          STATUS=$(gh api repos/${{ github.repository }}/actions/runners \
-            --jq '[.runners[] | select(.labels[].name == "shethia-farm")] | .[0].status // "offline"')
-          echo "Runner status: $STATUS"
-          if [ "$STATUS" = "online" ]; then
-            echo "available=true" >> $GITHUB_OUTPUT
-          else
-            echo "available=false" >> $GITHUB_OUTPUT
-          fi
+          RUNNERS=$(gh api repos/${{ github.repository }}/actions/runners --jq '.runners')
+          echo "All runners:"
+          echo "$RUNNERS" | jq -r '.[] | "\(.name) | labels: \([.labels[].name] | join(",")) | status: \(.status)"'
+
+          PRIMARY=$(echo "$RUNNERS" | jq -r '[.[] | select(.labels[].name == "shethia-farm")] | .[0].status // "offline"')
+          FALLBACK=$(echo "$RUNNERS" | jq -r '[.[] | select(.labels[].name == "railway")] | .[0].status // "offline"')
+
+          echo "Primary (shethia-farm) status: $PRIMARY"
+          echo "Fallback (railway) status:     $FALLBACK"
+
+          [ "$PRIMARY" = "online" ] && echo "primary=true" >> $GITHUB_OUTPUT || echo "primary=false" >> $GITHUB_OUTPUT
+          [ "$FALLBACK" = "online" ] && echo "fallback=true" >> $GITHUB_OUTPUT || echo "fallback=false" >> $GITHUB_OUTPUT
+
+      - name: Fail if no runners are available
+        if: steps.check.outputs.primary != 'true' && steps.check.outputs.fallback != 'true'
+        run: |
+          echo "::error::Neither the primary (shethia-farm) nor the fallback (railway) runner is online. Deployment aborted."
+          exit 1
 
   deploy-primary:
     name: Deploy to Primary
-    needs: check-primary-runner
-    if: needs.check-primary-runner.outputs.available == 'true'
+    needs: check-runners
+    if: needs.check-runners.outputs.primary-available == 'true'
     runs-on: [self-hosted, shethia-farm]    # runner A label
     timeout-minutes: 15                     # guard against hung steps after pickup
     steps:
@@ -62,10 +73,11 @@ jobs:
 
   deploy-fallback:
     name: Deploy to Fallback
-    needs: [check-primary-runner, deploy-primary]
+    needs: [check-runners, deploy-primary]
     if: |
-      always() && (
-        needs.check-primary-runner.outputs.available != 'true' ||
+      always() &&
+      needs.check-runners.outputs.fallback-available == 'true' && (
+        needs.check-runners.outputs.primary-available != 'true' ||
         needs.deploy-primary.result == 'failure' ||
         needs.deploy-primary.result == 'cancelled'
       )
