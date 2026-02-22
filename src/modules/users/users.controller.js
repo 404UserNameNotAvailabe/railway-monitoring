@@ -82,9 +82,16 @@ export async function listUsers(req, res) {
       if (validStatus) where.status = validStatus;
     }
 
+    // Op.or uses Symbol key - Object.keys() ignores it. Check if we have any filters.
+    const hasFilters = !!(
+      searchTerm ||
+      (role && ['ADMIN', 'USER'].includes((role || '').toString().toUpperCase())) ||
+      (status && ['ACTIVE', 'INACTIVE'].includes((status || '').toString().toUpperCase()))
+    );
+
     const users = await User.findAll({
       attributes: ['id', 'user_id', 'name', 'email', 'role', 'status', 'created_at'],
-      where: Object.keys(where).length ? where : undefined,
+      where: hasFilters ? where : undefined,
       order: [['created_at', 'DESC']],
     });
 
