@@ -55,7 +55,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
 logInfo('Server', 'Auth and user routes registered', {
   auth: ['/api/auth/login', '/api/auth/device-token', '/api/auth/register', '/api/auth/users'],
-  users: ['/api/users', '/api/users/me', '/api/users/:id/deactivate']
+  users: ['/api/users', '/api/users/me', '/api/users/:id', '/api/users/:id/deactivate']
 });
 
 /**

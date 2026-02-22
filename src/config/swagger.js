@@ -66,6 +66,15 @@ const options = {
             role: { type: 'string', enum: ['ADMIN', 'USER'] },
             status: { type: 'string', enum: ['ACTIVE', 'INACTIVE'] },
             created_at: { type: 'string', format: 'date-time' },
+            updated_at: { type: 'string', format: 'date-time' },
+          },
+        },
+        UpdateUserRequest: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            email: { type: 'string', nullable: true },
+            password: { type: 'string' },
           },
         },
         ErrorResponse: {
@@ -150,7 +159,14 @@ spec.paths['/api/users'] = {
   get: {
     tags: ['Users'],
     summary: 'List users (Admin only)',
+    description: 'Supports search and filters via query params: search/q (text across user_id, name, email), role, status.',
     security: [{ bearerAuth: [] }],
+    parameters: [
+      { name: 'search', in: 'query', description: 'Text search in user_id, name, email', schema: { type: 'string' } },
+      { name: 'q', in: 'query', description: 'Same as search', schema: { type: 'string' } },
+      { name: 'role', in: 'query', description: 'Filter by role', schema: { type: 'string', enum: ['ADMIN', 'USER'] } },
+      { name: 'status', in: 'query', description: 'Filter by status', schema: { type: 'string', enum: ['ACTIVE', 'INACTIVE'] } },
+    ],
     responses: {
       200: {
         description: 'List of users',
@@ -192,6 +208,71 @@ spec.paths['/api/users/me'] = {
         },
       },
       401: { description: 'Unauthorized', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+    },
+  },
+};
+spec.paths['/api/users/{id}'] = {
+  get: {
+    tags: ['Users'],
+    summary: 'Get user by ID (Admin only)',
+    security: [{ bearerAuth: [] }],
+    parameters: [
+      { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+    ],
+    responses: {
+      200: {
+        description: 'User details',
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                success: { type: 'boolean' },
+                user: { $ref: '#/components/schemas/UserResponse' },
+              },
+            },
+          },
+        },
+      },
+      401: { description: 'Unauthorized', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+      403: { description: 'Admin required', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+      404: { description: 'User not found', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+    },
+  },
+  patch: {
+    tags: ['Users'],
+    summary: 'Update user (Admin only)',
+    security: [{ bearerAuth: [] }],
+    parameters: [
+      { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+    ],
+    requestBody: {
+      content: {
+        'application/json': {
+          schema: { $ref: '#/components/schemas/UpdateUserRequest' },
+        },
+      },
+    },
+    responses: {
+      200: {
+        description: 'User updated',
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                success: { type: 'boolean' },
+                user: { $ref: '#/components/schemas/UserResponse' },
+              },
+            },
+          },
+        },
+      },
+      400: { description: 'No valid fields to update', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+      401: { description: 'Unauthorized', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+      403: { description: 'Forbidden (cannot update ADMIN)', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+      404: { description: 'User not found', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+      409: { description: 'email or user_id already exists', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
     },
   },
 };

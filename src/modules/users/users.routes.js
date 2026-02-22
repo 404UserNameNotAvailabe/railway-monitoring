@@ -1,6 +1,7 @@
 /**
  * User management routes.
- * POST /api/users (admin), GET /api/users (admin), PATCH /api/users/:id/deactivate (admin), GET /api/users/me.
+ * POST /api/users, GET /api/users, GET /api/users/:id, PATCH /api/users/:id,
+ * PATCH /api/users/:id/deactivate, GET /api/users/me.
  */
 
 import express from 'express';
@@ -12,6 +13,8 @@ const router = express.Router();
 router.post('/', requireAuth, requireAdmin, usersController.createUser);
 router.get('/', requireAuth, requireAdmin, usersController.listUsers);
 router.get('/me', requireAuth, usersController.me);
+router.get('/:id', requireAuth, requireAdmin, usersController.getUserById);
 router.patch('/:id/deactivate', requireAuth, requireAdmin, usersController.deactivateUser);
+router.patch('/:id', requireAuth, requireAdmin, usersController.updateUser);
 
 export default router;
