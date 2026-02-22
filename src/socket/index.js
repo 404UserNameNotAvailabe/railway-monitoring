@@ -76,53 +76,9 @@ export const initializeSocket = (io) => {
   // Start periodic heartbeat timeout checking
   startHeartbeatChecker(io);
 
-  // Start periodic session timeout checking
-  // Check every 30 seconds for timed-out sessions
-  setInterval(() => {
-    const timedOutSessions = sessionsState.getTimedOutSessions();
-
-    if (timedOutSessions.length > 0) {
-      logInfo('Session', `Checking for timed-out sessions: ${timedOutSessions.length} found`);
-    }
-
-    for (const session of timedOutSessions) {
-      logWarn('Session', 'Session timeout detected', {
-        kioskId: session.kioskId,
-        monitorId: session.monitorId,
-        monitorSocketId: session.monitorSocketId,
-        startedAt: session.startedAt,
-        lastActivityAt: session.lastActivityAt
-      });
-
-      // End the session
-      sessionsState.endSession(session.kioskId);
-
-      // Notify monitors
-      io.to('monitors').emit('session-ended', {
-        kioskId: session.kioskId,
-        monitorId: session.monitorId,
-        reason: 'session-timeout',
-        timestamp: new Date().toISOString()
-      });
-
-      // Notify the monitor that owned the session
-      const monitorSocket = io.sockets.sockets.get(session.monitorSocketId);
-      if (monitorSocket) {
-        monitorSocket.emit('session-timeout', {
-          kioskId: session.kioskId,
-          timestamp: new Date().toISOString()
-        });
-        logInfo('Session', 'Session timeout notification sent to monitor', {
-          monitorId: session.monitorId,
-          kioskId: session.kioskId
-        });
-      }
-    }
-  }, 30000); // Check every 30 seconds
-
-  logInfo('Session', 'Session timeout checker started', {
-    interval: '30s'
-  });
+  // Session timeout disabled: monitoring sessions stay active until admin stops,
+  // kiosk goes offline, or monitor/kiosk disconnects. No automatic idle timeout.
+  logInfo('Session', 'Session timeout disabled - sessions stay active until explicit stop or disconnect');
 
   io.on('connection', (socket) => {
     const {
