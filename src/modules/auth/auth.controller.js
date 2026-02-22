@@ -9,7 +9,6 @@ import User from '../users/user.model.js';
 import { logInfo, logWarn } from '../../utils/logger.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'demo-secret-key-change-in-production';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
 
 export async function login(req, res) {
   try {
@@ -54,7 +53,8 @@ export async function login(req, res) {
       user_id: user.user_id,
       name: user.name,
     };
-    const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+    // No expiresIn = lifetime token (never expires)
+const accessToken = jwt.sign(payload, JWT_SECRET);
 
     const userPojo = user.get({ plain: true });
     delete userPojo.password_hash;
