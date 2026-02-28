@@ -8,7 +8,7 @@ on:
 jobs:
   deploy:
     name: Deploy to Self-Hosted Server
-    runs-on: [self-hosted, railway]
+    runs-on: [self-hosted]
     timeout-minutes: 15
 
     steps:
