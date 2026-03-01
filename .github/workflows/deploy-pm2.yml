@@ -15,17 +15,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install deps
+      - name: Install dependencies
         run: npm ci
 
-      - name: Copy to production directory
+      - name: Restart PM2
         run: |
-          sudo cp -r $GITHUB_WORKSPACE/. /opt/railway-monitoring/
+          pm2 restart railway-monitoring --update-env
 
-      - name: Restart PM2 service
-        run: |
-          pm2 restart railway-monitoring --update-env || \
-          pm2 start /opt/railway-monitoring/src/server.js --name railway-monitoring
+      - name: Save PM2
+        run: pm2 save
 
-      - name: Verify PM2 status
+      - name: Verify
         run: pm2 status
